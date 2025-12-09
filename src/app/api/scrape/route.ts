@@ -35,40 +35,78 @@ const IGNORE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.c
 // Patrones de emails falsos (código JS, variables, etc.)
 const FAKE_EMAIL_PATTERNS = [
   /^[a-z]{1,3}@\./i,                    // ls@. m@. etc
-  /window/i,                             // window.loc@...
-  /location/i,                           // location@...
-  /document/i,                           // document@...
-  /\.www\./i,                            // @.www.
+  /window/i,                             // window
+  /location/i,                           // location
+  /document/i,                           // document
+  /\.www\./i,                            // .www.
   /dropdown/i,                           // dropdown
   /origin/i,                             // origin
   /round/i,                              // round
   /function/i,                           // function
   /return/i,                             // return
   /const/i,                              // const
-  /\bvar\b/i,                            // var (palabra completa)
+  /\bvar\b/i,                            // var
   /let@/i,                               // let@
   /@\d+\./,                              // @123.
-  /[a-z]@[a-z]\./i,                      // a@b. (demasiado corto)
-  /@[^.]+$/,                             // sin punto en dominio
+  /[a-z]@[a-z]\./i,                      // a@b.
+  /@[^.]+$/,                             // sin punto
   /\.\./,                                // puntos dobles
   /@-/,                                  // @-
   /-@/,                                  // -@
-  /^[^@]*@[^.]{1,2}\./,                  // dominio de 1-2 chars antes del punto
-  /\.bbox$/i,                            // .bbox (falso)
-  /\.land$/i,                            // .land (casi siempre falso)
+  /^[^@]*@[^.]{1,2}\./,                  // dominio corto
+  /\.bbox$/i,                            // .bbox
+  /\.land$/i,                            // .land
   /\.local$/i,                           // .local
   /\.internal$/i,                        // .internal
   /\.invalid$/i,                         // .invalid
   /\.test$/i,                            // .test
-  /aset\./i,                             // aset. (JS)
-  /ive\./i,                              // ive. (JS)
-  /administr@/i,                         // administr@ (cortado)
-  /e\.d@/i,                              // e.d@ (cortado)
-  /\.el$/i,                              // .el (cortado de .element)
+  /aset\./i,                             // aset.
+  /ive\./i,                              // ive.
+  /administr@/i,                         // administr@
+  /e\.d@/i,                              // e.d@
+  /\.el$/i,                              // .el
   /\.js$/i,                              // .js
   /\.ts$/i,                              // .ts
   /\.jsx$/i,                             // .jsx
   /\.tsx$/i,                             // .tsx
+  /this\./i,                             // this.
+  /children/i,                           // children
+  /tribute/i,                            // tribute
+  /observers/i,                          // observers
+  /push$/i,                              // .push
+  /prototype/i,                          // prototype
+  /handler/i,                            // handler
+  /callback/i,                           // callback
+  /listener/i,                           // listener
+  /element/i,                            // element
+  /node/i,                               // node
+  /array/i,                              // array
+  /object/i,                             // object
+  /string/i,                             // string
+  /number/i,                             // number
+  /boolean/i,                            // boolean
+  /undefined/i,                          // undefined
+  /null/i,                               // null
+  /true/i,                               // true
+  /false/i,                              // false
+  /module/i,                             // module
+  /export/i,                             // export
+  /import/i,                             // import
+  /require/i,                            // require
+  /async/i,                              // async
+  /await/i,                              // await
+  /promise/i,                            // promise
+  /fetch/i,                              // fetch
+  /ajax/i,                               // ajax
+  /jquery/i,                             // jquery
+  /react/i,                              // react
+  /angular/i,                            // angular
+  /vue/i,                                // vue
+  /next/i,                               // next
+  /script/i,                             // script
+  /style/i,                              // style
+  /class/i,                              // class
+  /del\s*tratamiento/i,                  // del tratamiento
 ];
 
 // TLDs válidos comunes (para validar emails)
@@ -429,16 +467,16 @@ async function searchDuckDuckGo(query: string, location: string): Promise<Busine
   return results;
 }
 
-// Búsqueda en Páginas Amarillas
+// Búsqueda en Páginas Amarillas - múltiples páginas
 async function scrapePaginasAmarillas(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
 
   try {
-    // Intentar múltiples URLs de PA
-    const urls = [
-      `https://www.paginasamarillas.es/search/${encodeURIComponent(query)}/all-ma/${encodeURIComponent(location)}/all-is/${encodeURIComponent(location)}/all-ba/all-pu/all-nc/1`,
-      `https://www.paginasamarillas.es/search/${encodeURIComponent(query)}/all-ma/all-pr/all-is/all-ci/all-ba/all-pu/all-nc/1?what=${encodeURIComponent(query)}&where=${encodeURIComponent(location)}`,
-    ];
+    // Scrapear varias páginas de resultados
+    const pages = [1, 2, 3];
+    const urls = pages.map(page =>
+      `https://www.paginasamarillas.es/search/${encodeURIComponent(query)}/all-ma/${encodeURIComponent(location)}/all-is/${encodeURIComponent(location)}/all-ba/all-pu/all-nc/${page}`
+    );
 
     for (const url of urls) {
       try {
@@ -466,8 +504,10 @@ async function scrapePaginasAmarillas(query: string, location: string): Promise<
               .replace(/de este sitio web/gi, '')
               .replace(/este sitio web/gi, '')
               .replace(/sitio web/gi, '')
+              .replace(/del tratamiento/gi, '')
               .replace(/Ver más/gi, '')
               .replace(/Leer más/gi, '')
+              .replace(/Más información/gi, '')
               .replace(/\s+/g, ' ')
               .split('\n')[0]  // Solo primera línea
               .trim();
@@ -505,7 +545,7 @@ async function scrapePaginasAmarillas(query: string, location: string): Promise<
           });
         }
 
-        if (results.length > 0) break;
+        // Continuar con siguiente página
       } catch {
         continue;
       }
@@ -517,16 +557,21 @@ async function scrapePaginasAmarillas(query: string, location: string): Promise<
   return results;
 }
 
-// Búsqueda genérica de negocios
+// Búsqueda genérica de negocios en múltiples directorios
 async function searchBusinessDirectories(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
 
-  // Buscar en varios directorios
+  // Buscar en muchos directorios españoles
   const searches = [
     `${query} ${location} site:infoisinfo.es`,
+    `${query} ${location} site:qdq.com`,
+    `${query} ${location} site:tupaki.es`,
+    `${query} ${location} site:hotfrog.es`,
+    `${query} ${location} site:cylex.es`,
     `${query} ${location} site:vulka.es`,
     `${query} ${location} site:empresite.eleconomista.es`,
-    `${query} ${location} horario contacto`,
+    `${query} ${location} contacto telefono email`,
+    `"${query}" "${location}" email`,
   ];
 
   for (const searchTerm of searches) {

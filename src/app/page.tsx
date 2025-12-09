@@ -246,7 +246,7 @@ export default function Home() {
                         <td className="px-4 py-3">
                           {business.phone ? (
                             <div className="flex items-center gap-2 group">
-                              <span className="text-sm text-neutral-700">{business.phone}</span>
+                              <span className="text-sm text-neutral-700 whitespace-nowrap">{business.phone}</span>
                               <button
                                 onClick={() => copyToClipboard(business.phone!)}
                                 className="opacity-0 group-hover:opacity-100 p-1 hover:bg-neutral-100 rounded transition-all"
