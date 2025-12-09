@@ -20,15 +20,41 @@ const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const PHONE_REGEX_ES = /(?:\+34\s?)?(?:6\d{2}|7[1-9]\d|9\d{2})[\s.-]?\d{3}[\s.-]?\d{3}/g;
 const PHONE_REGEX_INTL = /(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/g;
 
-// Dominios de email a ignorar (solo los realmente inválidos)
+// Dominios de email a ignorar
 const IGNORE_EMAIL_DOMAINS = [
   'example.com', 'test.com', 'localhost', 'sentry.io', 'wixpress.com',
   'placeholder.com', 'yourdomain.com', 'domain.com', 'email.com',
-  'w3.org', 'schema.org', 'sentry-next.wixpress.com', 'mailinator.com'
+  'w3.org', 'schema.org', 'sentry-next.wixpress.com', 'mailinator.com',
+  'yelp.com', 'yelp.es', 'facebook.com', 'twitter.com', 'instagram.com',
+  'linkedin.com', 'google.com', 'googleapis.com', 'gstatic.com'
 ];
 
 // Extensiones de archivo a ignorar
 const IGNORE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.woff', '.woff2', '.ttf', '.ico'];
+
+// Patrones de emails falsos (código JS, variables, etc.)
+const FAKE_EMAIL_PATTERNS = [
+  /^[a-z]{1,3}@\./i,                    // ls@. m@. etc
+  /window\./i,                           // window.loc@...
+  /location\./i,                         // location@...
+  /document\./i,                         // document@...
+  /\.www\./i,                            // @.www.
+  /dropdown/i,                           // dropdown
+  /origin/i,                             // origin
+  /round/i,                              // round
+  /function/i,                           // function
+  /return/i,                             // return
+  /const/i,                              // const
+  /var/i,                                // var
+  /let@/i,                               // let@
+  /@\d+\./,                              // @123.
+  /[a-z]@[a-z]\./i,                      // a@b. (demasiado corto)
+  /@[^.]+$/,                             // sin punto en dominio
+  /\.\./,                                // puntos dobles
+  /@-/,                                  // @-
+  /-@/,                                  // -@
+  /^[^@]*@[^.]{1,2}\./,                  // dominio de 1-2 chars antes del punto
+];
 
 async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response> {
   const controller = new AbortController();
@@ -64,14 +90,30 @@ function isValidEmail(email: string): boolean {
     if (lower.endsWith(ext)) return false;
   }
 
+  // Verificar patrones de emails falsos (código JS, etc.)
+  for (const pattern of FAKE_EMAIL_PATTERNS) {
+    if (pattern.test(lower)) return false;
+  }
+
   // Verificar formato básico
   const parts = email.split('@');
   if (parts.length !== 2) return false;
-  if (parts[0].length < 1 || parts[1].length < 3) return false;
+  if (parts[0].length < 2 || parts[1].length < 5) return false; // Mínimo 2 chars antes de @, 5 después
   if (!parts[1].includes('.')) return false;
+
+  // El dominio debe tener al menos 3 chars antes del punto
+  const domainParts = parts[1].split('.');
+  if (domainParts[0].length < 3) return false;
+
+  // La extensión debe tener entre 2 y 6 chars
+  const tld = domainParts[domainParts.length - 1];
+  if (tld.length < 2 || tld.length > 6) return false;
 
   // No emails con caracteres raros
   if (/[<>()[\]\\,;:\s"']/.test(email)) return false;
+
+  // Debe verse como un email real (no código)
+  if (/^(ls|m|h|a|b|c|x|y|z)@/i.test(lower)) return false;
 
   return true;
 }
@@ -383,7 +425,13 @@ async function scrapePaginasAmarillas(query: string, location: string): Promise<
         for (const selector of selectors) {
           $(selector).each((_, element) => {
             const el = $(element);
-            const name = el.find('[class*="titulo"], h2, h3, [class*="name"]').first().text().trim();
+            let name = el.find('[class*="titulo"], h2, h3, [class*="name"]').first().text().trim();
+
+            // Limpiar nombre
+            name = name
+              .replace(/de este sitio web/gi, '')
+              .replace(/\s+/g, ' ')
+              .trim();
 
             if (!name || name.length < 3) return;
 
@@ -487,20 +535,42 @@ async function scrapeYelp(query: string, location: string): Promise<BusinessResu
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    $('[class*="businessName"], [class*="container"] h3, [class*="result"]').each((_, element) => {
-      const name = $(element).text().trim();
-      const parent = $(element).closest('[class*="container"], article, [class*="result"]');
-      const link = parent.find('a[href*="/biz/"]').attr('href');
+    // Buscar enlaces a negocios
+    $('a[href*="/biz/"]').each((_, element) => {
+      const href = $(element).attr('href') || '';
+      // Solo enlaces directos a negocios, no reviews, etc.
+      if (!href.includes('/biz/') || href.includes('?') || href.includes('#')) return;
 
-      if (name && name.length > 3 && name.length < 100) {
-        results.push({
-          name,
-          website: link ? `https://www.yelp.es${link}` : undefined,
-          emailVerified: false,
-          phoneVerified: false,
-          source: 'Yelp',
-          scrapedAt: new Date().toISOString(),
-        });
+      let name = $(element).text().trim();
+
+      // Limpiar nombre de basura de Yelp
+      name = name
+        .replace(/del NegocioToma el control/gi, '')
+        .replace(/Toma el control/gi, '')
+        .replace(/del Negocio/gi, '')
+        .replace(/\d+\.\s*/, '') // Quitar números tipo "1. "
+        .trim();
+
+      // Extraer teléfono del contenedor padre
+      const parent = $(element).closest('[class*="container"], article, li, div').first();
+      const phoneText = parent.text();
+      const phones = phoneText.match(PHONE_REGEX_ES) || [];
+      const phone = phones.find(p => isValidPhone(p));
+
+      if (name && name.length > 3 && name.length < 80 && !name.includes('Yelp')) {
+        // Evitar duplicados
+        const exists = results.some(r => r.name.toLowerCase() === name.toLowerCase());
+        if (!exists) {
+          results.push({
+            name,
+            phone: phone ? formatPhoneDisplay(phone) : undefined,
+            phoneVerified: !!phone,
+            website: `https://www.yelp.es${href}`,
+            emailVerified: false,
+            source: 'Yelp',
+            scrapedAt: new Date().toISOString(),
+          });
+        }
       }
     });
   } catch (error) {
