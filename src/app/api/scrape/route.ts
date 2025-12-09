@@ -35,9 +35,9 @@ const IGNORE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.c
 // Patrones de emails falsos (código JS, variables, etc.)
 const FAKE_EMAIL_PATTERNS = [
   /^[a-z]{1,3}@\./i,                    // ls@. m@. etc
-  /window\./i,                           // window.loc@...
-  /location\./i,                         // location@...
-  /document\./i,                         // document@...
+  /window/i,                             // window.loc@...
+  /location/i,                           // location@...
+  /document/i,                           // document@...
   /\.www\./i,                            // @.www.
   /dropdown/i,                           // dropdown
   /origin/i,                             // origin
@@ -45,7 +45,7 @@ const FAKE_EMAIL_PATTERNS = [
   /function/i,                           // function
   /return/i,                             // return
   /const/i,                              // const
-  /var/i,                                // var
+  /\bvar\b/i,                            // var (palabra completa)
   /let@/i,                               // let@
   /@\d+\./,                              // @123.
   /[a-z]@[a-z]\./i,                      // a@b. (demasiado corto)
@@ -54,6 +54,30 @@ const FAKE_EMAIL_PATTERNS = [
   /@-/,                                  // @-
   /-@/,                                  // -@
   /^[^@]*@[^.]{1,2}\./,                  // dominio de 1-2 chars antes del punto
+  /\.bbox$/i,                            // .bbox (falso)
+  /\.land$/i,                            // .land (casi siempre falso)
+  /\.local$/i,                           // .local
+  /\.internal$/i,                        // .internal
+  /\.invalid$/i,                         // .invalid
+  /\.test$/i,                            // .test
+  /aset\./i,                             // aset. (JS)
+  /ive\./i,                              // ive. (JS)
+  /administr@/i,                         // administr@ (cortado)
+  /e\.d@/i,                              // e.d@ (cortado)
+  /\.el$/i,                              // .el (cortado de .element)
+  /\.js$/i,                              // .js
+  /\.ts$/i,                              // .ts
+  /\.jsx$/i,                             // .jsx
+  /\.tsx$/i,                             // .tsx
+];
+
+// TLDs válidos comunes (para validar emails)
+const VALID_TLDS = [
+  'com', 'es', 'org', 'net', 'edu', 'gov', 'info', 'biz', 'co', 'io', 'me',
+  'eu', 'de', 'fr', 'it', 'uk', 'pt', 'mx', 'ar', 'cl', 'co.uk', 'com.es',
+  'cat', 'gal', 'eus', 'madrid', 'barcelona', 'online', 'shop', 'store',
+  'tech', 'dev', 'app', 'cloud', 'email', 'mail', 'web', 'site', 'blog',
+  'pro', 'vet', 'health', 'clinic', 'center', 'care'
 ];
 
 async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response> {
@@ -105,15 +129,23 @@ function isValidEmail(email: string): boolean {
   const domainParts = parts[1].split('.');
   if (domainParts[0].length < 3) return false;
 
-  // La extensión debe tener entre 2 y 6 chars
+  // La extensión debe tener entre 2 y 10 chars
   const tld = domainParts[domainParts.length - 1];
-  if (tld.length < 2 || tld.length > 6) return false;
+  if (tld.length < 2 || tld.length > 10) return false;
+
+  // Verificar que el TLD sea válido o al menos parezca real
+  const isKnownTld = VALID_TLDS.some(validTld => tld === validTld || tld.endsWith(validTld));
+  // Si no es conocido, al menos debe tener 2-4 chars (como .es, .com, .net)
+  if (!isKnownTld && (tld.length < 2 || tld.length > 4)) return false;
 
   // No emails con caracteres raros
   if (/[<>()[\]\\,;:\s"']/.test(email)) return false;
 
   // Debe verse como un email real (no código)
-  if (/^(ls|m|h|a|b|c|x|y|z)@/i.test(lower)) return false;
+  if (/^(ls|m|h|a|b|c|x|y|z|e\.d)@/i.test(lower)) return false;
+
+  // El nombre de usuario debe tener al menos 3 chars o ser formato nombre.apellido
+  if (parts[0].length < 3 && !parts[0].includes('.')) return false;
 
   return true;
 }
@@ -343,8 +375,10 @@ async function searchDuckDuckGo(query: string, location: string): Promise<Busine
   // Múltiples búsquedas con diferentes términos
   const searches = [
     `${query} ${location} email contacto`,
-    `${query} ${location} telefono direccion`,
-    `"${query}" "${location}" @`,
+    `${query} ${location} telefono`,
+    `${query} en ${location}`,
+    `clinica ${query} ${location}`,
+    `centro ${query} ${location}`,
   ];
 
   for (const searchTerm of searches) {
@@ -427,10 +461,15 @@ async function scrapePaginasAmarillas(query: string, location: string): Promise<
             const el = $(element);
             let name = el.find('[class*="titulo"], h2, h3, [class*="name"]').first().text().trim();
 
-            // Limpiar nombre
+            // Limpiar nombre de basura
             name = name
               .replace(/de este sitio web/gi, '')
+              .replace(/este sitio web/gi, '')
+              .replace(/sitio web/gi, '')
+              .replace(/Ver más/gi, '')
+              .replace(/Leer más/gi, '')
               .replace(/\s+/g, ' ')
+              .split('\n')[0]  // Solo primera línea
               .trim();
 
             if (!name || name.length < 3) return;
@@ -478,43 +517,65 @@ async function scrapePaginasAmarillas(query: string, location: string): Promise<
   return results;
 }
 
-// Búsqueda en Google Maps mediante búsqueda web
-async function searchGooglePlaces(query: string, location: string): Promise<BusinessResult[]> {
+// Búsqueda genérica de negocios
+async function searchBusinessDirectories(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
 
-  try {
-    const searchQuery = encodeURIComponent(`${query} ${location} site:google.com/maps OR site:goo.gl/maps`);
-    const response = await fetchWithTimeout(
-      `https://html.duckduckgo.com/html/?q=${searchQuery}`,
-      15000
-    );
+  // Buscar en varios directorios
+  const searches = [
+    `${query} ${location} site:infoisinfo.es`,
+    `${query} ${location} site:vulka.es`,
+    `${query} ${location} site:empresite.eleconomista.es`,
+    `${query} ${location} horario contacto`,
+  ];
 
-    if (!response.ok) return results;
+  for (const searchTerm of searches) {
+    try {
+      const response = await fetchWithTimeout(
+        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchTerm)}`,
+        15000
+      );
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
+      if (!response.ok) continue;
 
-    $('.result').each((_, element) => {
-      const title = $(element).find('.result__title').text().trim();
-      const snippet = $(element).find('.result__snippet').text();
+      const html = await response.text();
+      const $ = cheerio.load(html);
 
-      if (title && !title.includes('Google Maps')) {
+      $('.result').each((_, element) => {
+        const title = $(element).find('.result__title').text().trim();
+        const snippet = $(element).find('.result__snippet').text();
+        const linkEl = $(element).find('.result__url');
+        const link = linkEl.attr('href') || linkEl.text().trim();
+
+        // Filtrar resultados que no son negocios
+        if (!title || title.length < 5) return;
+        if (title.toLowerCase().includes('google') || title.toLowerCase().includes('maps')) return;
+
         const emails = extractAllEmails(snippet);
         const phones = extractAllPhones(snippet);
 
-        results.push({
-          name: title.substring(0, 100),
-          email: emails[0],
-          emailVerified: false,
-          phone: phones[0],
-          phoneVerified: phones.length > 0,
-          source: 'Google Places',
-          scrapedAt: new Date().toISOString(),
-        });
-      }
-    });
-  } catch (error) {
-    console.error('Error searching Google Places:', error);
+        let websiteUrl = link;
+        if (websiteUrl && !websiteUrl.startsWith('http')) {
+          websiteUrl = `https://${websiteUrl.replace(/^\/\//, '')}`;
+        }
+
+        // Solo añadir si tiene algo de info útil
+        if (emails.length > 0 || phones.length > 0 || websiteUrl) {
+          results.push({
+            name: title.substring(0, 100),
+            email: emails[0],
+            emailVerified: false,
+            phone: phones[0],
+            phoneVerified: phones.length > 0,
+            website: websiteUrl || undefined,
+            source: 'Directorios',
+            scrapedAt: new Date().toISOString(),
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Error searching directories:', error);
+    }
   }
 
   return results;
@@ -649,13 +710,13 @@ export async function POST(request: NextRequest) {
     const [
       duckduckgoResults,
       paginasAmarillasResults,
-      googlePlacesResults,
+      directoriesResults,
       yelpResults,
       directEmailResults
     ] = await Promise.all([
       searchDuckDuckGo(query, location),
       scrapePaginasAmarillas(query, location),
-      searchGooglePlaces(query, location),
+      searchBusinessDirectories(query, location),
       scrapeYelp(query, location),
       searchDirectEmails(query, location),
     ]);
@@ -665,7 +726,7 @@ export async function POST(request: NextRequest) {
       ...directEmailResults, // Prioridad a los que ya tienen email
       ...paginasAmarillasResults,
       ...duckduckgoResults,
-      ...googlePlacesResults,
+      ...directoriesResults,
       ...yelpResults,
     ];
 
@@ -774,7 +835,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     message: 'Syntalys Business Contact Scraper API',
-    version: '2.0.0',
+    version: '2.1.0',
     usage: 'POST with { query: string, location: string, maxResults?: number, verifyContacts?: boolean }',
     example: {
       query: 'veterinarios',
