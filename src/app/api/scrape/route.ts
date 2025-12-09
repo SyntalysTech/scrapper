@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 interface BusinessResult {
   name: string;
@@ -33,7 +38,17 @@ const IGNORE_EMAIL_DOMAINS = [
 const VALID_TLDS = ['com', 'es', 'org', 'net', 'info', 'eu', 'cat', 'gal', 'eus', 'co', 'io', 'me', 'biz'];
 
 function isValidEmail(email: string): boolean {
-  const lower = email.toLowerCase().trim();
+  // Limpiar URL encoding
+  let lower = email.toLowerCase().trim();
+  try {
+    lower = decodeURIComponent(lower);
+  } catch {
+    // Si falla el decode, usar el original
+  }
+  lower = lower.trim();
+
+  // Rechazar si tiene espacios
+  if (lower.includes(' ')) return false;
 
   // Ignorar dominios conocidos
   for (const domain of IGNORE_EMAIL_DOMAINS) {
@@ -209,6 +224,145 @@ async function scrapeWebsite(url: string): Promise<{ emails: string[]; phones: s
   return { emails: Array.from(emails), phones: Array.from(phones), owner };
 }
 
+// Búsqueda con OpenAI Web Search
+async function searchWithOpenAI(query: string, location: string): Promise<BusinessResult[]> {
+  const results: BusinessResult[] = [];
+
+  try {
+    const searchPrompt = `Busca negocios de "${query}" en "${location}", España.
+Para cada negocio encontrado, proporciona:
+- Nombre del negocio
+- Email de contacto (si está disponible públicamente)
+- Teléfono (si está disponible)
+- Sitio web
+- Nombre del propietario o responsable (si aparece)
+
+Busca en sus webs oficiales, directorios empresariales, Google Maps, páginas amarillas, etc.
+Devuelve SOLO datos reales y verificables que encuentres en la web.
+Formato de respuesta JSON array:
+[{"name": "...", "email": "...", "phone": "...", "website": "...", "owner": "..."}]
+
+Encuentra al menos 10-15 negocios con datos de contacto reales.`;
+
+    const response = await openai.responses.create({
+      model: "gpt-4o",
+      tools: [{ type: "web_search_preview" }],
+      input: searchPrompt,
+    });
+
+    // Extraer el texto de la respuesta
+    let responseText = '';
+    for (const item of response.output) {
+      if (item.type === 'message') {
+        for (const content of item.content) {
+          if (content.type === 'output_text') {
+            responseText += content.text;
+          }
+        }
+      }
+    }
+
+    // Parsear JSON de la respuesta
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const businesses = JSON.parse(jsonMatch[0]);
+
+      for (const biz of businesses) {
+        if (!biz.name || biz.name.length < 3) continue;
+
+        const result: BusinessResult = {
+          name: cleanName(biz.name).substring(0, 100),
+          email: biz.email && isValidEmail(biz.email) ? biz.email.toLowerCase() : undefined,
+          emailVerified: false,
+          phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
+          phoneVerified: !!biz.phone,
+          website: biz.website || undefined,
+          owner: biz.owner || undefined,
+          source: 'OpenAI Search',
+          scrapedAt: new Date().toISOString(),
+        };
+
+        if (result.email || result.phone || result.website) {
+          results.push(result);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('OpenAI search error:', error);
+  }
+
+  return results;
+}
+
+// Búsqueda adicional con AI para emails específicos
+async function searchEmailsWithAI(query: string, location: string): Promise<BusinessResult[]> {
+  const results: BusinessResult[] = [];
+
+  try {
+    const searchPrompt = `Necesito encontrar emails de contacto REALES de negocios de "${query}" en "${location}", España.
+
+Busca en:
+1. Páginas web oficiales de estos negocios (sección contacto)
+2. Directorios empresariales españoles
+3. Google Maps / Google Business
+4. Redes sociales profesionales
+
+Para cada negocio que encuentres con email, dame:
+- nombre: Nombre del negocio
+- email: Email real de contacto
+- phone: Teléfono si lo encuentras
+- website: URL de su web
+- owner: Nombre del propietario/gerente si aparece
+
+IMPORTANTE: Solo incluye emails que hayas verificado que existen en las fuentes web.
+Responde SOLO con un JSON array, sin explicaciones:
+[{"name": "...", "email": "...", "phone": "...", "website": "...", "owner": "..."}]`;
+
+    const response = await openai.responses.create({
+      model: "gpt-4o",
+      tools: [{ type: "web_search_preview" }],
+      input: searchPrompt,
+    });
+
+    let responseText = '';
+    for (const item of response.output) {
+      if (item.type === 'message') {
+        for (const content of item.content) {
+          if (content.type === 'output_text') {
+            responseText += content.text;
+          }
+        }
+      }
+    }
+
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const businesses = JSON.parse(jsonMatch[0]);
+
+      for (const biz of businesses) {
+        if (!biz.name || !biz.email) continue;
+        if (!isValidEmail(biz.email)) continue;
+
+        results.push({
+          name: cleanName(biz.name).substring(0, 100),
+          email: biz.email.toLowerCase(),
+          emailVerified: true, // AI verified from source
+          phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
+          phoneVerified: !!biz.phone,
+          website: biz.website || undefined,
+          owner: biz.owner || undefined,
+          source: 'AI Email Search',
+          scrapedAt: new Date().toISOString(),
+        });
+      }
+    }
+  } catch (error) {
+    console.error('AI email search error:', error);
+  }
+
+  return results;
+}
+
 // Búsqueda en DuckDuckGo
 async function searchDuckDuckGo(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
@@ -329,14 +483,30 @@ export async function POST(request: NextRequest) {
 
     console.log(`Scraping: ${query} in ${location}`);
 
+    // Determinar si usar OpenAI (si hay API key configurada)
+    const useOpenAI = !!process.env.OPENAI_API_KEY;
+
     // Búsquedas en paralelo
-    const [duckResults, emailResults] = await Promise.all([
+    const searchPromises: Promise<BusinessResult[]>[] = [
       searchDuckDuckGo(query, location),
       searchEmails(query, location),
-    ]);
+    ];
 
-    // Combinar y eliminar duplicados
-    const allResults = [...emailResults, ...duckResults];
+    // Añadir búsquedas con OpenAI si está disponible
+    if (useOpenAI) {
+      console.log('Using OpenAI for enhanced search...');
+      searchPromises.push(searchWithOpenAI(query, location));
+      searchPromises.push(searchEmailsWithAI(query, location));
+    }
+
+    const searchResults = await Promise.all(searchPromises);
+    const [duckResults, emailResults, ...aiResults] = searchResults;
+
+    // Combinar resultados de AI
+    const openAIResults = aiResults.flat();
+
+    // Combinar y eliminar duplicados - priorizar AI results que tienen mejor calidad
+    const allResults = [...openAIResults, ...emailResults, ...duckResults];
     const uniqueResults: BusinessResult[] = [];
     const seenNames = new Set<string>();
 
