@@ -15,110 +15,95 @@ interface BusinessResult {
   scrapedAt: string;
 }
 
-// Regex patterns para extraer datos - MÁS AGRESIVO
-const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-const PHONE_REGEX_ES = /(?:\+34\s?)?(?:6\d{2}|7[1-9]\d|9\d{2})[\s.-]?\d{3}[\s.-]?\d{3}/g;
-const PHONE_REGEX_INTL = /(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/g;
+// Regex para extraer datos
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+const PHONE_REGEX_ES = /(?:\+34\s?)?[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}/g;
 
 // Dominios de email a ignorar
 const IGNORE_EMAIL_DOMAINS = [
   'example.com', 'test.com', 'localhost', 'sentry.io', 'wixpress.com',
   'placeholder.com', 'yourdomain.com', 'domain.com', 'email.com',
-  'w3.org', 'schema.org', 'sentry-next.wixpress.com', 'mailinator.com',
-  'yelp.com', 'yelp.es', 'facebook.com', 'twitter.com', 'instagram.com',
-  'linkedin.com', 'google.com', 'googleapis.com', 'gstatic.com'
+  'w3.org', 'schema.org', 'mailinator.com', 'yelp.com', 'yelp.es',
+  'facebook.com', 'twitter.com', 'instagram.com', 'linkedin.com',
+  'google.com', 'googleapis.com', 'gstatic.com', 'apple.com',
+  'microsoft.com', 'amazon.com', 'cloudflare.com'
 ];
 
-// Extensiones de archivo a ignorar
-const IGNORE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.woff', '.woff2', '.ttf', '.ico'];
+// TLDs válidos
+const VALID_TLDS = ['com', 'es', 'org', 'net', 'info', 'eu', 'cat', 'gal', 'eus', 'co', 'io', 'me', 'biz'];
 
-// Patrones de emails falsos (código JS, variables, etc.)
-const FAKE_EMAIL_PATTERNS = [
-  /^[a-z]{1,3}@\./i,                    // ls@. m@. etc
-  /window/i,                             // window
-  /location/i,                           // location
-  /document/i,                           // document
-  /\.www\./i,                            // .www.
-  /dropdown/i,                           // dropdown
-  /origin/i,                             // origin
-  /round/i,                              // round
-  /function/i,                           // function
-  /return/i,                             // return
-  /const/i,                              // const
-  /\bvar\b/i,                            // var
-  /let@/i,                               // let@
-  /@\d+\./,                              // @123.
-  /[a-z]@[a-z]\./i,                      // a@b.
-  /@[^.]+$/,                             // sin punto
-  /\.\./,                                // puntos dobles
-  /@-/,                                  // @-
-  /-@/,                                  // -@
-  /^[^@]*@[^.]{1,2}\./,                  // dominio corto
-  /\.bbox$/i,                            // .bbox
-  /\.land$/i,                            // .land
-  /\.local$/i,                           // .local
-  /\.internal$/i,                        // .internal
-  /\.invalid$/i,                         // .invalid
-  /\.test$/i,                            // .test
-  /aset\./i,                             // aset.
-  /ive\./i,                              // ive.
-  /administr@/i,                         // administr@
-  /e\.d@/i,                              // e.d@
-  /\.el$/i,                              // .el
-  /\.js$/i,                              // .js
-  /\.ts$/i,                              // .ts
-  /\.jsx$/i,                             // .jsx
-  /\.tsx$/i,                             // .tsx
-  /this\./i,                             // this.
-  /children/i,                           // children
-  /tribute/i,                            // tribute
-  /observers/i,                          // observers
-  /push$/i,                              // .push
-  /prototype/i,                          // prototype
-  /handler/i,                            // handler
-  /callback/i,                           // callback
-  /listener/i,                           // listener
-  /element/i,                            // element
-  /node/i,                               // node
-  /array/i,                              // array
-  /object/i,                             // object
-  /string/i,                             // string
-  /number/i,                             // number
-  /boolean/i,                            // boolean
-  /undefined/i,                          // undefined
-  /null/i,                               // null
-  /true/i,                               // true
-  /false/i,                              // false
-  /module/i,                             // module
-  /export/i,                             // export
-  /import/i,                             // import
-  /require/i,                            // require
-  /async/i,                              // async
-  /await/i,                              // await
-  /promise/i,                            // promise
-  /fetch/i,                              // fetch
-  /ajax/i,                               // ajax
-  /jquery/i,                             // jquery
-  /react/i,                              // react
-  /angular/i,                            // angular
-  /vue/i,                                // vue
-  /next/i,                               // next
-  /script/i,                             // script
-  /style/i,                              // style
-  /class/i,                              // class
-  /del\s*tratamiento/i,                  // del tratamiento
-];
+function isValidEmail(email: string): boolean {
+  const lower = email.toLowerCase().trim();
 
-// TLDs válidos comunes (para validar emails)
-const VALID_TLDS = [
-  'com', 'es', 'org', 'net', 'edu', 'gov', 'info', 'biz', 'co', 'io', 'me',
-  'eu', 'de', 'fr', 'it', 'uk', 'pt', 'mx', 'ar', 'cl', 'co.uk', 'com.es',
-  'cat', 'gal', 'eus', 'madrid', 'barcelona', 'online', 'shop', 'store',
-  'tech', 'dev', 'app', 'cloud', 'email', 'mail', 'web', 'site', 'blog',
-  'pro', 'vet', 'health', 'clinic', 'center', 'care'
-];
+  // Ignorar dominios conocidos
+  for (const domain of IGNORE_EMAIL_DOMAINS) {
+    if (lower.includes(domain)) return false;
+  }
 
-async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response> {
+  // Formato básico
+  const parts = lower.split('@');
+  if (parts.length !== 2) return false;
+  if (parts[0].length < 2 || parts[1].length < 5) return false;
+
+  // Validar TLD
+  const domainParts = parts[1].split('.');
+  const tld = domainParts[domainParts.length - 1];
+  if (!VALID_TLDS.includes(tld) && tld.length > 4) return false;
+
+  // No código JS
+  const jsPatterns = [
+    'window', 'document', 'location', 'function', 'return', 'const', 'var',
+    'let', 'this', 'children', 'prototype', 'handler', 'callback', 'element',
+    'node', 'array', 'object', 'string', 'null', 'undefined', 'true', 'false',
+    'module', 'export', 'import', 'require', 'async', 'await', 'promise',
+    'fetch', 'jquery', 'react', 'angular', 'vue', 'script', 'style'
+  ];
+  for (const pattern of jsPatterns) {
+    if (lower.includes(pattern)) return false;
+  }
+
+  // Extensiones de archivo
+  if (/\.(png|jpg|gif|svg|css|js|woff|ico)$/i.test(lower)) return false;
+
+  return true;
+}
+
+function isValidPhone(phone: string): boolean {
+  const cleaned = phone.replace(/[^\d]/g, '');
+  if (cleaned.length < 9 || cleaned.length > 12) return false;
+  if (/^(\d)\1+$/.test(cleaned)) return false;
+  return true;
+}
+
+function formatPhone(phone: string): string {
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  if (cleaned.length === 9) {
+    return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 6)} ${cleaned.slice(6)}`;
+  }
+  if (cleaned.startsWith('34') && cleaned.length === 11) {
+    return `+34 ${cleaned.slice(2, 5)} ${cleaned.slice(5, 8)} ${cleaned.slice(8)}`;
+  }
+  if (cleaned.startsWith('+34') && cleaned.length === 12) {
+    return `+34 ${cleaned.slice(3, 6)} ${cleaned.slice(6, 9)} ${cleaned.slice(9)}`;
+  }
+  return cleaned;
+}
+
+function cleanName(name: string): string {
+  return name
+    .replace(/de este sitio web/gi, '')
+    .replace(/del tratamiento/gi, '')
+    .replace(/Ver más/gi, '')
+    .replace(/Leer más/gi, '')
+    .replace(/del NegocioToma el control/gi, '')
+    .replace(/Toma el control/gi, '')
+    .replace(/del Negocio/gi, '')
+    .replace(/\d+\.\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchSafe(url: string, timeout = 10000): Promise<Response | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -127,7 +112,7 @@ async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response>
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
       },
     });
@@ -135,602 +120,198 @@ async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response>
     return response;
   } catch {
     clearTimeout(timeoutId);
-    throw new Error('Request timeout or failed');
+    return null;
   }
 }
 
-function isValidEmail(email: string): boolean {
-  const lower = email.toLowerCase().trim();
-
-  // Verificar dominios a ignorar
-  for (const domain of IGNORE_EMAIL_DOMAINS) {
-    if (lower.includes(domain)) return false;
-  }
-
-  // Verificar extensiones de archivo
-  for (const ext of IGNORE_EXTENSIONS) {
-    if (lower.endsWith(ext)) return false;
-  }
-
-  // Verificar patrones de emails falsos (código JS, etc.)
-  for (const pattern of FAKE_EMAIL_PATTERNS) {
-    if (pattern.test(lower)) return false;
-  }
-
-  // Verificar formato básico
-  const parts = email.split('@');
-  if (parts.length !== 2) return false;
-  if (parts[0].length < 2 || parts[1].length < 5) return false; // Mínimo 2 chars antes de @, 5 después
-  if (!parts[1].includes('.')) return false;
-
-  // El dominio debe tener al menos 3 chars antes del punto
-  const domainParts = parts[1].split('.');
-  if (domainParts[0].length < 3) return false;
-
-  // La extensión debe tener entre 2 y 10 chars
-  const tld = domainParts[domainParts.length - 1];
-  if (tld.length < 2 || tld.length > 10) return false;
-
-  // Verificar que el TLD sea válido o al menos parezca real
-  const isKnownTld = VALID_TLDS.some(validTld => tld === validTld || tld.endsWith(validTld));
-  // Si no es conocido, al menos debe tener 2-4 chars (como .es, .com, .net)
-  if (!isKnownTld && (tld.length < 2 || tld.length > 4)) return false;
-
-  // No emails con caracteres raros
-  if (/[<>()[\]\\,;:\s"']/.test(email)) return false;
-
-  // Debe verse como un email real (no código)
-  if (/^(ls|m|h|a|b|c|x|y|z|e\.d)@/i.test(lower)) return false;
-
-  // El nombre de usuario debe tener al menos 3 chars o ser formato nombre.apellido
-  if (parts[0].length < 3 && !parts[0].includes('.')) return false;
-
-  return true;
-}
-
-function formatPhoneDisplay(phone: string): string {
-  const cleaned = phone.replace(/[^\d+]/g, '');
-  if (cleaned.startsWith('+34') && cleaned.length === 12) {
-    return `+34 ${cleaned.slice(3, 6)} ${cleaned.slice(6, 9)} ${cleaned.slice(9)}`;
-  }
-  if (cleaned.length === 9) {
-    return `${cleaned.slice(0, 3)} ${cleaned.slice(3, 6)} ${cleaned.slice(6)}`;
-  }
-  return cleaned;
-}
-
-function isValidPhone(phone: string): boolean {
-  const cleaned = phone.replace(/[^\d]/g, '');
-  if (cleaned.length < 9 || cleaned.length > 15) return false;
-  if (/^(\d)\1+$/.test(cleaned)) return false;
-  if (/^0{2,}/.test(cleaned)) return false;
-  return true;
-}
-
-// Extraer TODOS los emails de un HTML
-function extractAllEmails(html: string, $?: cheerio.CheerioAPI): string[] {
+// Extraer contactos de una página web
+async function scrapeWebsite(url: string): Promise<{ emails: string[]; phones: string[]; owner?: string }> {
   const emails = new Set<string>();
-
-  // 1. Emails en href="mailto:"
-  if ($) {
-    $('a[href*="mailto:"]').each((_, el) => {
-      const href = $(el).attr('href') || '';
-      const email = href.replace(/^mailto:/i, '').split('?')[0].split('#')[0].trim().toLowerCase();
-      if (email && isValidEmail(email)) {
-        emails.add(email);
-      }
-    });
-
-    // 2. Emails en atributos data-*
-    $('[data-email], [data-mail], [data-contact]').each((_, el) => {
-      const dataEmail = $(el).attr('data-email') || $(el).attr('data-mail') || $(el).attr('data-contact') || '';
-      if (dataEmail && isValidEmail(dataEmail)) {
-        emails.add(dataEmail.toLowerCase());
-      }
-    });
-
-    // 3. Emails en el texto visible
-    const textContent = $('body').text();
-    const textEmails = textContent.match(EMAIL_REGEX) || [];
-    textEmails.forEach(e => {
-      if (isValidEmail(e)) emails.add(e.toLowerCase());
-    });
-
-    // 4. Emails en el HTML completo (incluyendo atributos, comentarios, etc.)
-    const htmlEmails = html.match(EMAIL_REGEX) || [];
-    htmlEmails.forEach(e => {
-      if (isValidEmail(e)) emails.add(e.toLowerCase());
-    });
-
-    // 5. Emails ofuscados con [at] o (at) o similares
-    const obfuscatedPattern = /([a-zA-Z0-9._%+-]+)\s*[\[(]?\s*(?:at|@|arroba)\s*[\])]?\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
-    const obfuscated = textContent.match(obfuscatedPattern) || [];
-    obfuscated.forEach(match => {
-      const cleaned = match.replace(/\s*[\[(]?\s*(?:at|arroba)\s*[\])]?\s*/gi, '@').trim();
-      if (isValidEmail(cleaned)) emails.add(cleaned.toLowerCase());
-    });
-  }
-
-  return Array.from(emails);
-}
-
-// Extraer teléfonos
-function extractAllPhones(html: string, $?: cheerio.CheerioAPI): string[] {
   const phones = new Set<string>();
-
-  if ($) {
-    // href="tel:"
-    $('a[href^="tel:"]').each((_, el) => {
-      const href = $(el).attr('href') || '';
-      const phone = href.replace('tel:', '').replace(/\s/g, '');
-      if (isValidPhone(phone)) phones.add(formatPhoneDisplay(phone));
-    });
-
-    // Texto
-    const text = $('body').text();
-    const textPhones = text.match(PHONE_REGEX_ES) || text.match(PHONE_REGEX_INTL) || [];
-    textPhones.forEach(p => {
-      if (isValidPhone(p)) phones.add(formatPhoneDisplay(p));
-    });
-  }
-
-  // HTML completo
-  const htmlPhones = html.match(PHONE_REGEX_ES) || html.match(PHONE_REGEX_INTL) || [];
-  htmlPhones.forEach(p => {
-    if (isValidPhone(p)) phones.add(formatPhoneDisplay(p));
-  });
-
-  return Array.from(phones);
-}
-
-// Buscar nombre del propietario
-function extractOwner(text: string): string | undefined {
-  const patterns = [
-    /(?:propietario|dueño|director|gerente|ceo|fundador|responsable|titular|administrador)[:\s]+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3})/gi,
-    /(?:Dr\.|Dra\.|D\.|Dña\.|Don|Doña)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3})/g,
-  ];
-
-  for (const pattern of patterns) {
-    const matches = text.matchAll(pattern);
-    for (const match of matches) {
-      if (match[1] && match[1].length > 4 && match[1].length < 50) {
-        return match[1].trim();
-      }
-    }
-  }
-  return undefined;
-}
-
-// Scraping PROFUNDO de una web - entra en TODAS las páginas relevantes
-async function scrapeWebsiteDeep(url: string): Promise<{ emails: string[]; phones: string[]; owner?: string; status: number }> {
-  const allEmails: Set<string> = new Set();
-  const allPhones: Set<string> = new Set();
   let owner: string | undefined;
-  let status = 0;
 
   try {
-    if (!url.startsWith('http')) {
-      url = `https://${url}`;
-    }
+    if (!url.startsWith('http')) url = `https://${url}`;
 
-    // Página principal
-    const response = await fetchWithTimeout(url, 12000);
-    status = response.status;
-    if (!response.ok) return { emails: [], phones: [], status };
+    const response = await fetchSafe(url, 8000);
+    if (!response || !response.ok) return { emails: [], phones: [] };
 
     const html = await response.text();
     const $ = cheerio.load(html);
+    $('script, style, noscript').remove();
 
-    // Extraer de página principal
-    extractAllEmails(html, $).forEach(e => allEmails.add(e));
-    extractAllPhones(html, $).forEach(p => allPhones.add(p));
-    if (!owner) owner = extractOwner($('body').text());
-
-    const baseUrl = new URL(url).origin;
-
-    // Encontrar TODOS los enlaces internos relevantes
-    const internalLinks: Set<string> = new Set();
-
-    $('a[href]').each((_, el) => {
-      const href = $(el).attr('href') || '';
-      const text = $(el).text().toLowerCase();
-
-      // Ignorar enlaces externos, anclas, javascript, etc.
-      if (href.startsWith('javascript:') || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) {
-        return;
-      }
-
-      // Palabras clave que indican páginas con contacto
-      const keywords = ['contact', 'contacto', 'about', 'sobre', 'nosotros', 'quienes', 'equipo', 'team', 'empresa', 'company', 'info', 'legal', 'aviso', 'privacidad', 'footer'];
-
-      const isRelevant = keywords.some(kw => href.toLowerCase().includes(kw) || text.includes(kw));
-
-      if (isRelevant) {
-        let fullUrl: string;
-        if (href.startsWith('http')) {
-          // Solo enlaces del mismo dominio
-          if (href.startsWith(baseUrl)) {
-            fullUrl = href;
-          } else {
-            return;
-          }
-        } else {
-          fullUrl = new URL(href, baseUrl).toString();
-        }
-        internalLinks.add(fullUrl);
-      }
+    // Emails de mailto:
+    $('a[href^="mailto:"]').each((_, el) => {
+      const email = ($(el).attr('href') || '').replace('mailto:', '').split('?')[0].toLowerCase();
+      if (email && isValidEmail(email)) emails.add(email);
     });
 
-    // También añadir rutas comunes aunque no estén enlazadas
-    const commonPaths = [
-      '/contacto', '/contact', '/contactar', '/contactanos', '/contact-us',
-      '/sobre-nosotros', '/about', '/about-us', '/quienes-somos', '/empresa',
-      '/equipo', '/team', '/nuestro-equipo',
-      '/legal', '/aviso-legal', '/privacidad', '/privacy',
-      '/info', '/informacion'
+    // Emails del texto
+    const text = $('body').text();
+    const textEmails = text.match(EMAIL_REGEX) || [];
+    textEmails.forEach(e => { if (isValidEmail(e)) emails.add(e.toLowerCase()); });
+
+    // Teléfonos de tel:
+    $('a[href^="tel:"]').each((_, el) => {
+      const phone = ($(el).attr('href') || '').replace('tel:', '');
+      if (isValidPhone(phone)) phones.add(formatPhone(phone));
+    });
+
+    // Teléfonos del texto
+    const textPhones = text.match(PHONE_REGEX_ES) || [];
+    textPhones.forEach(p => { if (isValidPhone(p)) phones.add(formatPhone(p)); });
+
+    // Buscar propietario
+    const ownerPatterns = [
+      /(?:propietario|director|gerente|ceo|fundador|responsable)[:\s]+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,2})/gi,
     ];
-
-    commonPaths.forEach(path => internalLinks.add(`${baseUrl}${path}`));
-
-    // Scrapear cada página interna (máximo 8 para no tardar mucho)
-    const pagesToScrape = Array.from(internalLinks).slice(0, 8);
-
-    await Promise.all(pagesToScrape.map(async (pageUrl) => {
-      try {
-        const pageResponse = await fetchWithTimeout(pageUrl, 8000);
-        if (!pageResponse.ok) return;
-
-        const pageHtml = await pageResponse.text();
-        const $page = cheerio.load(pageHtml);
-
-        extractAllEmails(pageHtml, $page).forEach(e => allEmails.add(e));
-        extractAllPhones(pageHtml, $page).forEach(p => allPhones.add(p));
-
-        if (!owner) {
-          owner = extractOwner($page('body').text());
-        }
-      } catch {
-        // Ignorar errores de páginas individuales
+    for (const pattern of ownerPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        owner = match[1]?.trim();
+        break;
       }
-    }));
+    }
+
+    // Si no hay emails, buscar en /contacto
+    if (emails.size === 0) {
+      const baseUrl = new URL(url).origin;
+      const contactUrls = ['/contacto', '/contact', '/contactar'];
+
+      for (const contactPath of contactUrls) {
+        try {
+          const contactResponse = await fetchSafe(`${baseUrl}${contactPath}`, 5000);
+          if (contactResponse && contactResponse.ok) {
+            const contactHtml = await contactResponse.text();
+            const $c = cheerio.load(contactHtml);
+
+            $c('a[href^="mailto:"]').each((_, el) => {
+              const email = ($c(el).attr('href') || '').replace('mailto:', '').split('?')[0].toLowerCase();
+              if (email && isValidEmail(email)) emails.add(email);
+            });
+
+            const contactText = $c('body').text();
+            const contactEmails = contactText.match(EMAIL_REGEX) || [];
+            contactEmails.forEach(e => { if (isValidEmail(e)) emails.add(e.toLowerCase()); });
+
+            if (emails.size > 0) break;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
 
   } catch (error) {
     console.error('Error scraping website:', error);
   }
 
-  return {
-    emails: Array.from(allEmails),
-    phones: Array.from(allPhones),
-    owner,
-    status
-  };
+  return { emails: Array.from(emails), phones: Array.from(phones), owner };
 }
 
-// Búsqueda en DuckDuckGo - más resultados
+// Búsqueda en DuckDuckGo
 async function searchDuckDuckGo(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
-
-  // Múltiples búsquedas con diferentes términos
   const searches = [
-    `${query} ${location} email contacto`,
-    `${query} ${location} telefono`,
-    `${query} en ${location}`,
+    `${query} ${location}`,
+    `${query} ${location} contacto`,
     `clinica ${query} ${location}`,
     `centro ${query} ${location}`,
   ];
 
   for (const searchTerm of searches) {
     try {
-      const searchQuery = encodeURIComponent(searchTerm);
-      const response = await fetchWithTimeout(
-        `https://html.duckduckgo.com/html/?q=${searchQuery}`,
-        15000
-      );
-
-      if (!response.ok) continue;
+      const response = await fetchSafe(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchTerm)}`, 15000);
+      if (!response || !response.ok) continue;
 
       const html = await response.text();
       const $ = cheerio.load(html);
 
       $('.result').each((_, element) => {
         const title = $(element).find('.result__title').text().trim();
-        const linkEl = $(element).find('.result__url');
-        const link = linkEl.attr('href') || linkEl.text().trim();
-        const snippet = $(element).find('.result__snippet').text() + ' ' + $(element).find('.result__snippet').html();
-
-        if (title && title.length > 3) {
-          const emails = extractAllEmails(snippet);
-          const phones = extractAllPhones(snippet);
-
-          let websiteUrl = link;
-          if (websiteUrl && !websiteUrl.startsWith('http')) {
-            websiteUrl = `https://${websiteUrl.replace(/^\/\//, '')}`;
-          }
-
-          results.push({
-            name: title.substring(0, 100),
-            email: emails[0],
-            emailVerified: false,
-            phone: phones[0],
-            phoneVerified: phones.length > 0,
-            website: websiteUrl || undefined,
-            source: 'DuckDuckGo',
-            scrapedAt: new Date().toISOString(),
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Error searching DuckDuckGo:', error);
-    }
-  }
-
-  return results;
-}
-
-// Búsqueda en Páginas Amarillas - múltiples páginas
-async function scrapePaginasAmarillas(query: string, location: string): Promise<BusinessResult[]> {
-  const results: BusinessResult[] = [];
-
-  try {
-    // Scrapear varias páginas de resultados
-    const pages = [1, 2, 3];
-    const urls = pages.map(page =>
-      `https://www.paginasamarillas.es/search/${encodeURIComponent(query)}/all-ma/${encodeURIComponent(location)}/all-is/${encodeURIComponent(location)}/all-ba/all-pu/all-nc/${page}`
-    );
-
-    for (const url of urls) {
-      try {
-        const response = await fetchWithTimeout(url, 15000);
-        if (!response.ok) continue;
-
-        const html = await response.text();
-        const $ = cheerio.load(html);
-
-        // Múltiples selectores para diferentes versiones de PA
-        const selectors = [
-          '.listado-item',
-          '[class*="item"]',
-          '.business',
-          'article',
-        ];
-
-        for (const selector of selectors) {
-          $(selector).each((_, element) => {
-            const el = $(element);
-            let name = el.find('[class*="titulo"], h2, h3, [class*="name"]').first().text().trim();
-
-            // Limpiar nombre de basura
-            name = name
-              .replace(/de este sitio web/gi, '')
-              .replace(/este sitio web/gi, '')
-              .replace(/sitio web/gi, '')
-              .replace(/del tratamiento/gi, '')
-              .replace(/Ver más/gi, '')
-              .replace(/Leer más/gi, '')
-              .replace(/Más información/gi, '')
-              .replace(/\s+/g, ' ')
-              .split('\n')[0]  // Solo primera línea
-              .trim();
-
-            if (!name || name.length < 3) return;
-
-            // Buscar teléfono
-            const phoneEl = el.find('[href^="tel:"], [class*="phone"], [class*="telefono"]').first();
-            const phone = phoneEl.attr('href')?.replace('tel:', '') || phoneEl.text().trim();
-
-            // Buscar email
-            const emailEl = el.find('[href^="mailto:"]').first();
-            const email = emailEl.attr('href')?.replace('mailto:', '').split('?')[0];
-
-            // Buscar web
-            const webEl = el.find('a[href*="http"]:not([href*="paginasamarillas"]):not([href*="google"]):not([href*="facebook"])').first();
-            const website = webEl.attr('href');
-
-            // Dirección
-            const address = el.find('[class*="direccion"], [class*="address"], [itemprop="address"]').text().trim();
-
-            if (name && (phone || website)) {
-              results.push({
-                name: name.substring(0, 100),
-                email: email && isValidEmail(email) ? email : undefined,
-                emailVerified: false,
-                phone: phone && isValidPhone(phone) ? formatPhoneDisplay(phone) : undefined,
-                phoneVerified: !!phone && isValidPhone(phone),
-                address: address || undefined,
-                website: website || undefined,
-                source: 'Páginas Amarillas',
-                scrapedAt: new Date().toISOString(),
-              });
-            }
-          });
-        }
-
-        // Continuar con siguiente página
-      } catch {
-        continue;
-      }
-    }
-  } catch (error) {
-    console.error('Error scraping Páginas Amarillas:', error);
-  }
-
-  return results;
-}
-
-// Búsqueda genérica de negocios en múltiples directorios
-async function searchBusinessDirectories(query: string, location: string): Promise<BusinessResult[]> {
-  const results: BusinessResult[] = [];
-
-  // Buscar en muchos directorios españoles
-  const searches = [
-    `${query} ${location} site:infoisinfo.es`,
-    `${query} ${location} site:qdq.com`,
-    `${query} ${location} site:tupaki.es`,
-    `${query} ${location} site:hotfrog.es`,
-    `${query} ${location} site:cylex.es`,
-    `${query} ${location} site:vulka.es`,
-    `${query} ${location} site:empresite.eleconomista.es`,
-    `${query} ${location} contacto telefono email`,
-    `"${query}" "${location}" email`,
-  ];
-
-  for (const searchTerm of searches) {
-    try {
-      const response = await fetchWithTimeout(
-        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchTerm)}`,
-        15000
-      );
-
-      if (!response.ok) continue;
-
-      const html = await response.text();
-      const $ = cheerio.load(html);
-
-      $('.result').each((_, element) => {
-        const title = $(element).find('.result__title').text().trim();
-        const snippet = $(element).find('.result__snippet').text();
-        const linkEl = $(element).find('.result__url');
-        const link = linkEl.attr('href') || linkEl.text().trim();
-
-        // Filtrar resultados que no son negocios
-        if (!title || title.length < 5) return;
-        if (title.toLowerCase().includes('google') || title.toLowerCase().includes('maps')) return;
-
-        const emails = extractAllEmails(snippet);
-        const phones = extractAllPhones(snippet);
-
-        let websiteUrl = link;
-        if (websiteUrl && !websiteUrl.startsWith('http')) {
-          websiteUrl = `https://${websiteUrl.replace(/^\/\//, '')}`;
-        }
-
-        // Solo añadir si tiene algo de info útil
-        if (emails.length > 0 || phones.length > 0 || websiteUrl) {
-          results.push({
-            name: title.substring(0, 100),
-            email: emails[0],
-            emailVerified: false,
-            phone: phones[0],
-            phoneVerified: phones.length > 0,
-            website: websiteUrl || undefined,
-            source: 'Directorios',
-            scrapedAt: new Date().toISOString(),
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Error searching directories:', error);
-    }
-  }
-
-  return results;
-}
-
-// Búsqueda en Yelp
-async function scrapeYelp(query: string, location: string): Promise<BusinessResult[]> {
-  const results: BusinessResult[] = [];
-
-  try {
-    const response = await fetchWithTimeout(
-      `https://www.yelp.es/search?find_desc=${encodeURIComponent(query)}&find_loc=${encodeURIComponent(location)}`,
-      15000
-    );
-
-    if (!response.ok) return results;
-
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    // Buscar enlaces a negocios
-    $('a[href*="/biz/"]').each((_, element) => {
-      const href = $(element).attr('href') || '';
-      // Solo enlaces directos a negocios, no reviews, etc.
-      if (!href.includes('/biz/') || href.includes('?') || href.includes('#')) return;
-
-      let name = $(element).text().trim();
-
-      // Limpiar nombre de basura de Yelp
-      name = name
-        .replace(/del NegocioToma el control/gi, '')
-        .replace(/Toma el control/gi, '')
-        .replace(/del Negocio/gi, '')
-        .replace(/\d+\.\s*/, '') // Quitar números tipo "1. "
-        .trim();
-
-      // Extraer teléfono del contenedor padre
-      const parent = $(element).closest('[class*="container"], article, li, div').first();
-      const phoneText = parent.text();
-      const phones = phoneText.match(PHONE_REGEX_ES) || [];
-      const phone = phones.find(p => isValidPhone(p));
-
-      if (name && name.length > 3 && name.length < 80 && !name.includes('Yelp')) {
-        // Evitar duplicados
-        const exists = results.some(r => r.name.toLowerCase() === name.toLowerCase());
-        if (!exists) {
-          results.push({
-            name,
-            phone: phone ? formatPhoneDisplay(phone) : undefined,
-            phoneVerified: !!phone,
-            website: `https://www.yelp.es${href}`,
-            emailVerified: false,
-            source: 'Yelp',
-            scrapedAt: new Date().toISOString(),
-          });
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Error scraping Yelp:', error);
-  }
-
-  return results;
-}
-
-// Búsqueda directa de emails con términos específicos
-async function searchDirectEmails(query: string, location: string): Promise<BusinessResult[]> {
-  const results: BusinessResult[] = [];
-
-  const searches = [
-    `"${query}" "${location}" "@gmail.com" OR "@hotmail.com" OR "@yahoo.es"`,
-    `${query} ${location} email contactar`,
-    `${query} ${location} "correo electronico"`,
-  ];
-
-  for (const searchTerm of searches) {
-    try {
-      const response = await fetchWithTimeout(
-        `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchTerm)}`,
-        15000
-      );
-
-      if (!response.ok) continue;
-
-      const html = await response.text();
-      const $ = cheerio.load(html);
-
-      $('.result').each((_, element) => {
-        const title = $(element).find('.result__title').text().trim();
-        const snippet = $(element).find('.result__snippet').text() + ' ' + ($(element).find('.result__snippet').html() || '');
         const link = $(element).find('.result__url').text().trim();
+        const snippet = $(element).find('.result__snippet').text();
 
-        const emails = extractAllEmails(snippet);
-        const phones = extractAllPhones(snippet);
+        if (!title || title.length < 3) return;
 
-        if (title && emails.length > 0) {
+        const name = cleanName(title);
+        if (name.length < 3) return;
+
+        // Extraer datos del snippet
+        const snippetEmails = (snippet.match(EMAIL_REGEX) || []).filter(e => isValidEmail(e));
+        const snippetPhones = (snippet.match(PHONE_REGEX_ES) || []).filter(p => isValidPhone(p));
+
+        let website = link;
+        if (website && !website.startsWith('http')) {
+          website = `https://${website}`;
+        }
+
+        // Solo añadir si tiene algo útil
+        if (website || snippetEmails.length > 0 || snippetPhones.length > 0) {
           results.push({
-            name: title.substring(0, 100),
-            email: emails[0],
+            name: name.substring(0, 100),
+            email: snippetEmails[0]?.toLowerCase(),
             emailVerified: false,
-            phone: phones[0],
-            phoneVerified: phones.length > 0,
-            website: link ? (link.startsWith('http') ? link : `https://${link}`) : undefined,
-            source: 'Direct Search',
+            phone: snippetPhones[0] ? formatPhone(snippetPhones[0]) : undefined,
+            phoneVerified: snippetPhones.length > 0,
+            website,
+            source: 'Web',
             scrapedAt: new Date().toISOString(),
           });
         }
       });
-    } catch {
-      continue;
+    } catch (error) {
+      console.error('DuckDuckGo error:', error);
+    }
+  }
+
+  return results;
+}
+
+// Búsqueda específica de emails
+async function searchEmails(query: string, location: string): Promise<BusinessResult[]> {
+  const results: BusinessResult[] = [];
+
+  const searches = [
+    `"${query}" "${location}" email`,
+    `"${query}" "${location}" @gmail.com OR @hotmail.com`,
+    `${query} ${location} correo electronico contacto`,
+  ];
+
+  for (const searchTerm of searches) {
+    try {
+      const response = await fetchSafe(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchTerm)}`, 15000);
+      if (!response || !response.ok) continue;
+
+      const html = await response.text();
+      const $ = cheerio.load(html);
+
+      $('.result').each((_, element) => {
+        const title = $(element).find('.result__title').text().trim();
+        const link = $(element).find('.result__url').text().trim();
+        const snippet = $(element).find('.result__snippet').text();
+
+        const emails = (snippet.match(EMAIL_REGEX) || []).filter(e => isValidEmail(e));
+        if (emails.length === 0) return;
+
+        const name = cleanName(title);
+        if (name.length < 3) return;
+
+        const phones = (snippet.match(PHONE_REGEX_ES) || []).filter(p => isValidPhone(p));
+
+        results.push({
+          name: name.substring(0, 100),
+          email: emails[0].toLowerCase(),
+          emailVerified: false,
+          phone: phones[0] ? formatPhone(phones[0]) : undefined,
+          phoneVerified: phones.length > 0,
+          website: link ? (link.startsWith('http') ? link : `https://${link}`) : undefined,
+          source: 'Email Search',
+          scrapedAt: new Date().toISOString(),
+        });
+      });
+    } catch (error) {
+      console.error('Email search error:', error);
     }
   }
 
@@ -740,124 +321,66 @@ async function searchDirectEmails(query: string, location: string): Promise<Busi
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { query, location, maxResults = 30, verifyContacts = true } = body;
+    const { query, location, maxResults = 30 } = body;
 
     if (!query || !location) {
-      return NextResponse.json(
-        { error: 'Query and location are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Query and location are required' }, { status: 400 });
     }
 
     console.log(`Scraping: ${query} in ${location}`);
 
-    // Ejecutar TODAS las búsquedas en paralelo
-    const [
-      duckduckgoResults,
-      paginasAmarillasResults,
-      directoriesResults,
-      yelpResults,
-      directEmailResults
-    ] = await Promise.all([
+    // Búsquedas en paralelo
+    const [duckResults, emailResults] = await Promise.all([
       searchDuckDuckGo(query, location),
-      scrapePaginasAmarillas(query, location),
-      searchBusinessDirectories(query, location),
-      scrapeYelp(query, location),
-      searchDirectEmails(query, location),
+      searchEmails(query, location),
     ]);
 
-    // Combinar resultados
-    const allResults = [
-      ...directEmailResults, // Prioridad a los que ya tienen email
-      ...paginasAmarillasResults,
-      ...duckduckgoResults,
-      ...directoriesResults,
-      ...yelpResults,
-    ];
-
-    // Eliminar duplicados por nombre
+    // Combinar y eliminar duplicados
+    const allResults = [...emailResults, ...duckResults];
     const uniqueResults: BusinessResult[] = [];
     const seenNames = new Set<string>();
 
     for (const result of allResults) {
-      const normalizedName = result.name.toLowerCase()
-        .replace(/[^a-záéíóúñ0-9\s]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const nameKey = normalizedName.split(' ').slice(0, 3).join('');
-
-      if (!seenNames.has(nameKey) && normalizedName.length > 3) {
-        seenNames.add(nameKey);
+      const key = result.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+      if (!seenNames.has(key) && key.length > 3) {
+        seenNames.add(key);
         uniqueResults.push(result);
       }
     }
 
-    // Limitar resultados antes de enriquecer
-    let finalResults = uniqueResults.slice(0, maxResults);
+    // Limitar y enriquecer con scraping de webs
+    const limitedResults = uniqueResults.slice(0, maxResults);
 
-    // Enriquecer AGRESIVAMENTE cada resultado que tenga website
-    if (verifyContacts) {
-      const enrichmentPromises = finalResults.map(async (result) => {
-        if (result.website) {
-          const scraped = await scrapeWebsiteDeep(result.website);
-
-          // Añadir TODOS los emails encontrados (usar el primero)
+    // Scrapear webs en paralelo para obtener emails
+    const enrichedResults = await Promise.all(
+      limitedResults.map(async (result) => {
+        if (result.website && !result.email) {
+          const scraped = await scrapeWebsite(result.website);
           if (scraped.emails.length > 0) {
-            // Si ya tiene email, verificar si hay uno mejor
-            if (!result.email) {
-              result.email = scraped.emails[0];
-            }
+            result.email = scraped.emails[0];
+            result.emailVerified = true;
           }
-
-          // Añadir teléfono si no tiene
           if (!result.phone && scraped.phones.length > 0) {
             result.phone = scraped.phones[0];
             result.phoneVerified = true;
           }
-
-          // Añadir propietario
           if (scraped.owner) {
             result.owner = scraped.owner;
           }
-
-          // Status
-          result.websiteStatus = scraped.status;
         }
-
-        // Verificar que el email existe (dominio accesible)
-        if (result.email) {
-          const domain = result.email.split('@')[1];
-          if (domain) {
-            try {
-              const domainCheck = await fetchWithTimeout(`https://${domain}`, 5000);
-              result.emailVerified = domainCheck.status < 500;
-            } catch {
-              try {
-                const domainCheck = await fetchWithTimeout(`http://${domain}`, 5000);
-                result.emailVerified = domainCheck.status < 500;
-              } catch {
-                result.emailVerified = true; // Asumir válido si no podemos verificar
-              }
-            }
-          }
-        }
-
         return result;
-      });
+      })
+    );
 
-      finalResults = await Promise.all(enrichmentPromises);
-    }
+    // Filtrar los que tienen contacto
+    const validResults = enrichedResults.filter(r => r.email || r.phone);
 
-    // Ordenar: primero los que tienen email, luego los que tienen teléfono
-    finalResults.sort((a, b) => {
-      const scoreA = (a.email ? 3 : 0) + (a.phone ? 1 : 0) + (a.owner ? 1 : 0);
-      const scoreB = (b.email ? 3 : 0) + (b.phone ? 1 : 0) + (b.owner ? 1 : 0);
+    // Ordenar por cantidad de info
+    validResults.sort((a, b) => {
+      const scoreA = (a.email ? 2 : 0) + (a.phone ? 1 : 0) + (a.owner ? 1 : 0);
+      const scoreB = (b.email ? 2 : 0) + (b.phone ? 1 : 0) + (b.owner ? 1 : 0);
       return scoreB - scoreA;
     });
-
-    // NO filtrar tan agresivamente - mostrar todo lo que tenga algo de info
-    const validResults = finalResults.filter(r => r.email || r.phone || r.website);
 
     return NextResponse.json({
       success: true,
@@ -870,24 +393,14 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Scraping error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error during scraping' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Error during scraping' }, { status: 500 });
   }
 }
 
 export async function GET() {
   return NextResponse.json({
     message: 'Syntalys Business Contact Scraper API',
-    version: '2.1.0',
-    usage: 'POST with { query: string, location: string, maxResults?: number, verifyContacts?: boolean }',
-    example: {
-      query: 'veterinarios',
-      location: 'Madrid',
-      maxResults: 30,
-      verifyContacts: true,
-    },
-    sources: ['DuckDuckGo', 'Páginas Amarillas', 'Google Places', 'Yelp', 'Direct Email Search'],
+    version: '3.0.0',
+    usage: 'POST { query, location, maxResults? }',
   });
 }
