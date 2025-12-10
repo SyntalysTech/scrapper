@@ -71,3 +71,18 @@ body {
     opacity: 1;
   }
 }
+
+@keyframes slide-in-from-bottom-4 {
+  0% {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-in-from-bottom-4 {
+  animation-name: slide-in-from-bottom-4;
+}
