@@ -309,7 +309,7 @@ IMPORTANTE:
 - Si no encuentras email, deja el campo vacío
 - Busca en la página de contacto de cada web
 
-Encuentra ${Math.min(maxResults + 5, 25)} negocios.
+Encuentra al menos ${Math.min(maxResults, 40)} negocios diferentes.
 
 Responde ÚNICAMENTE con un JSON array válido, sin markdown ni explicaciones:
 [{"name": "Nombre Negocio", "email": "email@real.com", "phone": "+34 XXX XXX XXX", "website": "https://web.com", "owner": "Nombre Propietario"}]`;
@@ -472,7 +472,7 @@ Para cada empresa encontrada, extrae:
 - Web oficial
 - Nombre del responsable si aparece
 
-Busca 15-20 empresas con datos de contacto completos.
+Busca al menos 30-40 empresas con datos de contacto.
 
 Responde SOLO con JSON array válido:
 [{"name": "...", "email": "...", "phone": "...", "website": "...", "owner": "..."}]`;
@@ -529,12 +529,93 @@ Responde SOLO con JSON array válido:
   return results;
 }
 
+// Cuarta búsqueda - Más resultados con paginación
+async function searchMoreWithAI(query: string, location: string, existingNames: string[]): Promise<BusinessResult[]> {
+  const results: BusinessResult[] = [];
+
+  try {
+    const excludeList = existingNames.slice(0, 20).join(', ');
+
+    const searchPrompt = `Busca MÁS negocios de "${query}" en "${location}", España.
+
+IMPORTANTE: NO incluyas estos negocios que ya tenemos:
+${excludeList}
+
+Busca negocios DIFERENTES a los anteriores. Incluye:
+- Negocios más pequeños o menos conocidos
+- Negocios en diferentes zonas de ${location}
+- Negocios con diferentes nombres comerciales
+
+Para cada negocio nuevo, extrae:
+- Nombre comercial
+- Email de contacto
+- Teléfono
+- Web
+
+Encuentra 30-40 negocios NUEVOS que no estén en la lista anterior.
+
+Responde SOLO con JSON array:
+[{"name": "...", "email": "...", "phone": "...", "website": "..."}]`;
+
+    const response = await openai.responses.create({
+      model: "gpt-4o",
+      tools: [{ type: "web_search_preview" }],
+      input: searchPrompt,
+    });
+
+    let responseText = '';
+    for (const item of response.output) {
+      if (item.type === 'message') {
+        for (const content of item.content) {
+          if (content.type === 'output_text') {
+            responseText += content.text;
+          }
+        }
+      }
+    }
+
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+
+    if (jsonMatch) {
+      try {
+        const businesses = JSON.parse(jsonMatch[0]);
+
+        for (const biz of businesses) {
+          if (!biz.name || biz.name.length < 3) continue;
+
+          const cleanedEmail = biz.email ? cleanEmail(biz.email) : undefined;
+
+          results.push({
+            name: cleanName(biz.name).substring(0, 100),
+            email: cleanedEmail && isValidEmail(cleanedEmail) ? cleanedEmail : undefined,
+            emailVerified: false,
+            phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
+            phoneVerified: !!biz.phone,
+            website: biz.website || undefined,
+            source: 'AI Extended',
+            scrapedAt: new Date().toISOString(),
+          });
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+      }
+    }
+  } catch (error) {
+    console.error('Extended search error:', error);
+  }
+
+  return results;
+}
+
 // Búsqueda en DuckDuckGo (backup)
 async function searchDuckDuckGo(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
   const searches = [
     `${query} ${location} contacto email`,
     `${query} ${location} telefono`,
+    `${query} ${location} directorio`,
+    `mejores ${query} ${location}`,
   ];
 
   for (const searchTerm of searches) {
@@ -615,38 +696,47 @@ export async function POST(request: NextRequest) {
     const searchResults = await Promise.all(searchPromises);
 
     // Combinar todos los resultados
-    const allResults = searchResults.flat();
+    let allResults = searchResults.flat();
 
-    // Eliminar duplicados por nombre (normalizado)
-    const uniqueResults: BusinessResult[] = [];
-    const seenNames = new Set<string>();
+    // Función para deduplicar
+    const deduplicateResults = (results: BusinessResult[]): BusinessResult[] => {
+      const unique: BusinessResult[] = [];
+      const seenNames = new Set<string>();
 
-    // Ordenar para priorizar los que tienen email
-    allResults.sort((a, b) => {
-      const scoreA = (a.email ? 10 : 0) + (a.phone ? 3 : 0) + (a.emailVerified ? 5 : 0);
-      const scoreB = (b.email ? 10 : 0) + (b.phone ? 3 : 0) + (b.emailVerified ? 5 : 0);
-      return scoreB - scoreA;
-    });
+      // Ordenar para priorizar los que tienen email
+      results.sort((a, b) => {
+        const scoreA = (a.email ? 10 : 0) + (a.phone ? 3 : 0) + (a.emailVerified ? 5 : 0);
+        const scoreB = (b.email ? 10 : 0) + (b.phone ? 3 : 0) + (b.emailVerified ? 5 : 0);
+        return scoreB - scoreA;
+      });
 
-    for (const result of allResults) {
-      const key = result.name.toLowerCase()
-        .replace(/[^a-záéíóúñ0-9]/g, '')
-        .slice(0, 25);
+      for (const result of results) {
+        const key = result.name.toLowerCase()
+          .replace(/[^a-záéíóúñ0-9]/g, '')
+          .slice(0, 25);
 
-      if (!seenNames.has(key) && key.length > 3) {
-        seenNames.add(key);
-
-        // Si ya tenemos uno sin email y este tiene email, preferir este
-        const existingIndex = uniqueResults.findIndex(r =>
-          r.name.toLowerCase().replace(/[^a-záéíóúñ0-9]/g, '').slice(0, 25) === key
-        );
-
-        if (existingIndex === -1) {
-          uniqueResults.push(result);
-        } else if (!uniqueResults[existingIndex].email && result.email) {
-          uniqueResults[existingIndex] = { ...uniqueResults[existingIndex], ...result };
+        if (!seenNames.has(key) && key.length > 3) {
+          seenNames.add(key);
+          unique.push(result);
         }
       }
+
+      return unique;
+    };
+
+    let uniqueResults = deduplicateResults(allResults);
+    console.log(`First round: ${uniqueResults.length} unique results`);
+
+    // Si necesitamos más resultados y tenemos OpenAI, hacer búsqueda extendida
+    if (useOpenAI && uniqueResults.length < maxResults && maxResults > 30) {
+      console.log(`Need more results (${uniqueResults.length}/${maxResults}), doing extended search...`);
+
+      const existingNames = uniqueResults.map(r => r.name);
+      const moreResults = await searchMoreWithAI(query, location, existingNames);
+
+      allResults = [...uniqueResults, ...moreResults];
+      uniqueResults = deduplicateResults(allResults);
+      console.log(`After extended search: ${uniqueResults.length} unique results`);
     }
 
     // Limitar resultados
