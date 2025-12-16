@@ -20,8 +20,8 @@ interface BusinessResult {
   scrapedAt: string;
 }
 
-// Regex para extraer datos
-const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+// Regex mejorado para emails - más estricto
+const EMAIL_REGEX = /\b[a-zA-Z0-9._%+-]{2,30}@[a-zA-Z0-9.-]{2,30}\.[a-zA-Z]{2,6}\b/gi;
 const PHONE_REGEX_ES = /(?:\+34\s?)?[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}/g;
 
 // Dominios de email a ignorar
@@ -31,54 +31,92 @@ const IGNORE_EMAIL_DOMAINS = [
   'w3.org', 'schema.org', 'mailinator.com', 'yelp.com', 'yelp.es',
   'facebook.com', 'twitter.com', 'instagram.com', 'linkedin.com',
   'google.com', 'googleapis.com', 'gstatic.com', 'apple.com',
-  'microsoft.com', 'amazon.com', 'cloudflare.com'
+  'microsoft.com', 'amazon.com', 'cloudflare.com', 'sentry-next.wixpress.com',
+  'elpais.es', 'elmundo.es', 'abc.es', 'lavanguardia.com' // Periódicos
 ];
 
-// TLDs válidos
+// TLDs válidos para España
 const VALID_TLDS = ['com', 'es', 'org', 'net', 'info', 'eu', 'cat', 'gal', 'eus', 'co', 'io', 'me', 'biz'];
 
-function isValidEmail(email: string): boolean {
-  // Limpiar URL encoding
-  let lower = email.toLowerCase().trim();
+// Palabras que indican email falso o de JS
+const INVALID_EMAIL_PATTERNS = [
+  'window', 'document', 'location', 'function', 'return', 'const', 'var',
+  'let', 'this', 'children', 'prototype', 'handler', 'callback', 'element',
+  'node', 'array', 'object', 'string', 'null', 'undefined', 'true', 'false',
+  'module', 'export', 'import', 'require', 'async', 'await', 'promise',
+  'fetch', 'jquery', 'react', 'angular', 'vue', 'script', 'style',
+  'suscripcion', 'newsletter', 'noreply', 'no-reply', 'donotreply',
+  'mailer-daemon', 'postmaster', 'webmaster'
+];
+
+function cleanEmail(email: string): string | null {
+  if (!email) return null;
+
+  let cleaned = email.toLowerCase().trim();
+
+  // Decodificar URL encoding
   try {
-    lower = decodeURIComponent(lower);
+    cleaned = decodeURIComponent(cleaned);
   } catch {
-    // Si falla el decode, usar el original
+    // Si falla, continuar con el original
   }
-  lower = lower.trim();
 
-  // Rechazar si tiene espacios
-  if (lower.includes(' ')) return false;
+  // Eliminar prefijos comunes de basura
+  cleaned = cleaned
+    .replace(/^[0-9]+/, '') // Números al inicio
+    .replace(/^contacto\+?/, '') // "contacto+" al inicio
+    .replace(/\+34\d+/g, '') // Teléfonos concatenados
+    .replace(/^[^a-z]+/i, '') // Caracteres no-letra al inicio
+    .trim();
 
-  // Ignorar dominios conocidos
-  for (const domain of IGNORE_EMAIL_DOMAINS) {
-    if (lower.includes(domain)) return false;
+  // Buscar el email real dentro del string si hay basura
+  const emailMatch = cleaned.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/);
+  if (emailMatch) {
+    cleaned = emailMatch[1];
   }
+
+  return cleaned;
+}
+
+function isValidEmail(email: string): boolean {
+  const cleaned = cleanEmail(email);
+  if (!cleaned) return false;
+
+  // Longitud razonable
+  if (cleaned.length < 6 || cleaned.length > 60) return false;
+
+  // No tiene espacios
+  if (cleaned.includes(' ')) return false;
 
   // Formato básico
-  const parts = lower.split('@');
+  const parts = cleaned.split('@');
   if (parts.length !== 2) return false;
   if (parts[0].length < 2 || parts[1].length < 5) return false;
 
+  // No tiene caracteres repetidos extraños
+  if (/(.)\1{4,}/.test(cleaned)) return false;
+
+  // No tiene números excesivos antes del @
+  if (/\d{6,}/.test(parts[0])) return false;
+
   // Validar TLD
   const domainParts = parts[1].split('.');
+  if (domainParts.length < 2) return false;
   const tld = domainParts[domainParts.length - 1];
   if (!VALID_TLDS.includes(tld) && tld.length > 4) return false;
 
-  // No código JS
-  const jsPatterns = [
-    'window', 'document', 'location', 'function', 'return', 'const', 'var',
-    'let', 'this', 'children', 'prototype', 'handler', 'callback', 'element',
-    'node', 'array', 'object', 'string', 'null', 'undefined', 'true', 'false',
-    'module', 'export', 'import', 'require', 'async', 'await', 'promise',
-    'fetch', 'jquery', 'react', 'angular', 'vue', 'script', 'style'
-  ];
-  for (const pattern of jsPatterns) {
-    if (lower.includes(pattern)) return false;
+  // Ignorar dominios conocidos
+  for (const domain of IGNORE_EMAIL_DOMAINS) {
+    if (parts[1].includes(domain)) return false;
   }
 
-  // Extensiones de archivo
-  if (/\.(png|jpg|gif|svg|css|js|woff|ico)$/i.test(lower)) return false;
+  // No patrones de JS/código
+  for (const pattern of INVALID_EMAIL_PATTERNS) {
+    if (cleaned.includes(pattern)) return false;
+  }
+
+  // No extensiones de archivo
+  if (/\.(png|jpg|gif|svg|css|js|woff|ico|pdf|doc)$/i.test(cleaned)) return false;
 
   return true;
 }
@@ -86,7 +124,8 @@ function isValidEmail(email: string): boolean {
 function isValidPhone(phone: string): boolean {
   const cleaned = phone.replace(/[^\d]/g, '');
   if (cleaned.length < 9 || cleaned.length > 12) return false;
-  if (/^(\d)\1+$/.test(cleaned)) return false;
+  if (/^(\d)\1+$/.test(cleaned)) return false; // No todos iguales
+  if (/^(123456|654321|000000|111111|999999)/.test(cleaned)) return false; // Patrones obvios
   return true;
 }
 
@@ -113,6 +152,9 @@ function cleanName(name: string): string {
     .replace(/del NegocioToma el control/gi, '')
     .replace(/Toma el control/gi, '')
     .replace(/del Negocio/gi, '')
+    .replace(/- Buscar con Google/gi, '')
+    .replace(/\| LinkedIn/gi, '')
+    .replace(/- Google Maps/gi, '')
     .replace(/\d+\.\s*/, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -153,22 +195,37 @@ async function scrapeWebsite(url: string): Promise<{ emails: string[]; phones: s
 
     const html = await response.text();
     const $ = cheerio.load(html);
-    $('script, style, noscript').remove();
+    $('script, style, noscript, iframe').remove();
 
     // Emails de mailto:
     $('a[href^="mailto:"]').each((_, el) => {
-      const email = ($(el).attr('href') || '').replace('mailto:', '').split('?')[0].toLowerCase();
-      if (email && isValidEmail(email)) emails.add(email);
+      const href = $(el).attr('href') || '';
+      const email = href.replace('mailto:', '').split('?')[0].split('&')[0];
+      const cleaned = cleanEmail(email);
+      if (cleaned && isValidEmail(cleaned)) emails.add(cleaned);
     });
 
-    // Emails del texto
+    // Emails del texto visible
     const text = $('body').text();
     const textEmails = text.match(EMAIL_REGEX) || [];
-    textEmails.forEach(e => { if (isValidEmail(e)) emails.add(e.toLowerCase()); });
+    textEmails.forEach(e => {
+      const cleaned = cleanEmail(e);
+      if (cleaned && isValidEmail(cleaned)) emails.add(cleaned);
+    });
+
+    // Buscar en atributos data-* y meta tags
+    $('meta[content*="@"]').each((_, el) => {
+      const content = $(el).attr('content') || '';
+      const foundEmails = content.match(EMAIL_REGEX) || [];
+      foundEmails.forEach(e => {
+        const cleaned = cleanEmail(e);
+        if (cleaned && isValidEmail(cleaned)) emails.add(cleaned);
+      });
+    });
 
     // Teléfonos de tel:
     $('a[href^="tel:"]').each((_, el) => {
-      const phone = ($(el).attr('href') || '').replace('tel:', '');
+      const phone = ($(el).attr('href') || '').replace('tel:', '').replace(/\s/g, '');
       if (isValidPhone(phone)) phones.add(formatPhone(phone));
     });
 
@@ -188,10 +245,10 @@ async function scrapeWebsite(url: string): Promise<{ emails: string[]; phones: s
       }
     }
 
-    // Si no hay emails, buscar en /contacto
+    // Si no hay emails, buscar en páginas de contacto
     if (emails.size === 0) {
       const baseUrl = new URL(url).origin;
-      const contactUrls = ['/contacto', '/contact', '/contactar'];
+      const contactUrls = ['/contacto', '/contact', '/contactar', '/sobre-nosotros', '/quienes-somos'];
 
       for (const contactPath of contactUrls) {
         try {
@@ -199,15 +256,21 @@ async function scrapeWebsite(url: string): Promise<{ emails: string[]; phones: s
           if (contactResponse && contactResponse.ok) {
             const contactHtml = await contactResponse.text();
             const $c = cheerio.load(contactHtml);
+            $c('script, style, noscript').remove();
 
             $c('a[href^="mailto:"]').each((_, el) => {
-              const email = ($c(el).attr('href') || '').replace('mailto:', '').split('?')[0].toLowerCase();
-              if (email && isValidEmail(email)) emails.add(email);
+              const href = $c(el).attr('href') || '';
+              const email = href.replace('mailto:', '').split('?')[0];
+              const cleaned = cleanEmail(email);
+              if (cleaned && isValidEmail(cleaned)) emails.add(cleaned);
             });
 
             const contactText = $c('body').text();
             const contactEmails = contactText.match(EMAIL_REGEX) || [];
-            contactEmails.forEach(e => { if (isValidEmail(e)) emails.add(e.toLowerCase()); });
+            contactEmails.forEach(e => {
+              const cleaned = cleanEmail(e);
+              if (cleaned && isValidEmail(cleaned)) emails.add(cleaned);
+            });
 
             if (emails.size > 0) break;
           }
@@ -224,25 +287,32 @@ async function scrapeWebsite(url: string): Promise<{ emails: string[]; phones: s
   return { emails: Array.from(emails), phones: Array.from(phones), owner };
 }
 
-// Búsqueda con OpenAI Web Search
-async function searchWithOpenAI(query: string, location: string): Promise<BusinessResult[]> {
+// Búsqueda principal con OpenAI Web Search - Mejorado
+async function searchWithOpenAI(query: string, location: string, maxResults: number): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
 
   try {
-    const searchPrompt = `Busca negocios de "${query}" en "${location}", España.
-Para cada negocio encontrado, proporciona:
-- Nombre del negocio
-- Email de contacto (si está disponible públicamente)
-- Teléfono (si está disponible)
-- Sitio web
-- Nombre del propietario o responsable (si aparece)
+    const searchPrompt = `Eres un asistente experto en búsqueda de datos de contacto empresarial en España.
 
-Busca en sus webs oficiales, directorios empresariales, Google Maps, páginas amarillas, etc.
-Devuelve SOLO datos reales y verificables que encuentres en la web.
-Formato de respuesta JSON array:
-[{"name": "...", "email": "...", "phone": "...", "website": "...", "owner": "..."}]
+TAREA: Busca negocios de "${query}" en "${location}", España.
 
-Encuentra al menos 10-15 negocios con datos de contacto reales.`;
+INSTRUCCIONES:
+1. Busca en Google, directorios empresariales españoles (Páginas Amarillas, QDQ, Infobel), Google Maps, webs oficiales
+2. Para cada negocio, extrae el EMAIL REAL de su página de contacto
+3. Prioriza emails de dominio propio (info@empresa.es) sobre genéricos (gmail, hotmail)
+4. Incluye el teléfono de contacto principal
+5. Busca el nombre del propietario/gerente si aparece
+
+IMPORTANTE:
+- Solo incluye emails REALES que hayas encontrado en las fuentes
+- NO inventes emails
+- Si no encuentras email, deja el campo vacío
+- Busca en la página de contacto de cada web
+
+Encuentra ${Math.min(maxResults + 5, 25)} negocios.
+
+Responde ÚNICAMENTE con un JSON array válido, sin markdown ni explicaciones:
+[{"name": "Nombre Negocio", "email": "email@real.com", "phone": "+34 XXX XXX XXX", "website": "https://web.com", "owner": "Nombre Propietario"}]`;
 
     const response = await openai.responses.create({
       model: "gpt-4o",
@@ -262,29 +332,37 @@ Encuentra al menos 10-15 negocios con datos de contacto reales.`;
       }
     }
 
-    // Parsear JSON de la respuesta
+    // Limpiar y parsear JSON
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+
     if (jsonMatch) {
-      const businesses = JSON.parse(jsonMatch[0]);
+      try {
+        const businesses = JSON.parse(jsonMatch[0]);
 
-      for (const biz of businesses) {
-        if (!biz.name || biz.name.length < 3) continue;
+        for (const biz of businesses) {
+          if (!biz.name || biz.name.length < 3) continue;
 
-        const result: BusinessResult = {
-          name: cleanName(biz.name).substring(0, 100),
-          email: biz.email && isValidEmail(biz.email) ? biz.email.toLowerCase() : undefined,
-          emailVerified: false,
-          phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
-          phoneVerified: !!biz.phone,
-          website: biz.website || undefined,
-          owner: biz.owner || undefined,
-          source: 'OpenAI Search',
-          scrapedAt: new Date().toISOString(),
-        };
+          const cleanedEmail = biz.email ? cleanEmail(biz.email) : undefined;
 
-        if (result.email || result.phone || result.website) {
-          results.push(result);
+          const result: BusinessResult = {
+            name: cleanName(biz.name).substring(0, 100),
+            email: cleanedEmail && isValidEmail(cleanedEmail) ? cleanedEmail : undefined,
+            emailVerified: false,
+            phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
+            phoneVerified: !!biz.phone,
+            website: biz.website || undefined,
+            owner: biz.owner || undefined,
+            source: 'OpenAI Search',
+            scrapedAt: new Date().toISOString(),
+          };
+
+          if (result.name.length > 3) {
+            results.push(result);
+          }
         }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
       }
     }
   } catch (error) {
@@ -294,28 +372,109 @@ Encuentra al menos 10-15 negocios con datos de contacto reales.`;
   return results;
 }
 
-// Búsqueda adicional con AI para emails específicos
+// Segunda búsqueda enfocada en emails
 async function searchEmailsWithAI(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
 
   try {
-    const searchPrompt = `Necesito encontrar emails de contacto REALES de negocios de "${query}" en "${location}", España.
+    const searchPrompt = `Busca EMAILS de contacto REALES de empresas de "${query}" en "${location}", España.
 
-Busca en:
-1. Páginas web oficiales de estos negocios (sección contacto)
-2. Directorios empresariales españoles
-3. Google Maps / Google Business
-4. Redes sociales profesionales
+MÉTODO DE BÚSQUEDA:
+1. Entra a las páginas web oficiales de estos negocios
+2. Busca en la sección "Contacto", "Sobre nosotros", footer
+3. Extrae emails de mailto: links o texto visible
+4. Verifica que el email pertenece a esa empresa (dominio correcto)
 
-Para cada negocio que encuentres con email, dame:
-- nombre: Nombre del negocio
-- email: Email real de contacto
-- phone: Teléfono si lo encuentras
-- website: URL de su web
-- owner: Nombre del propietario/gerente si aparece
+FUENTES PRIORITARIAS:
+- Webs oficiales de las empresas
+- Google Maps (sección de contacto)
+- Páginas Amarillas
+- Directorios profesionales del sector
 
-IMPORTANTE: Solo incluye emails que hayas verificado que existen en las fuentes web.
-Responde SOLO con un JSON array, sin explicaciones:
+Solo incluye negocios donde hayas ENCONTRADO un email real.
+No incluyas emails genéricos de periódicos, redes sociales o plataformas.
+
+Responde SOLO con JSON array:
+[{"name": "...", "email": "email@empresa.es", "phone": "...", "website": "...", "owner": "..."}]`;
+
+    const response = await openai.responses.create({
+      model: "gpt-4o",
+      tools: [{ type: "web_search_preview" }],
+      input: searchPrompt,
+    });
+
+    let responseText = '';
+    for (const item of response.output) {
+      if (item.type === 'message') {
+        for (const content of item.content) {
+          if (content.type === 'output_text') {
+            responseText += content.text;
+          }
+        }
+      }
+    }
+
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+
+    if (jsonMatch) {
+      try {
+        const businesses = JSON.parse(jsonMatch[0]);
+
+        for (const biz of businesses) {
+          if (!biz.name || !biz.email) continue;
+
+          const cleanedEmail = cleanEmail(biz.email);
+          if (!cleanedEmail || !isValidEmail(cleanedEmail)) continue;
+
+          results.push({
+            name: cleanName(biz.name).substring(0, 100),
+            email: cleanedEmail,
+            emailVerified: true,
+            phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
+            phoneVerified: !!biz.phone,
+            website: biz.website || undefined,
+            owner: biz.owner || undefined,
+            source: 'AI Email Search',
+            scrapedAt: new Date().toISOString(),
+          });
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+      }
+    }
+  } catch (error) {
+    console.error('AI email search error:', error);
+  }
+
+  return results;
+}
+
+// Tercera búsqueda - Directorios específicos
+async function searchDirectoriesWithAI(query: string, location: string): Promise<BusinessResult[]> {
+  const results: BusinessResult[] = [];
+
+  try {
+    const searchPrompt = `Busca en directorios empresariales españoles negocios de "${query}" en "${location}".
+
+DIRECTORIOS A CONSULTAR:
+- paginasamarillas.es
+- qdq.com
+- infobel.com/es
+- europages.es
+- empresite.eleconomista.es
+- axesor.es
+
+Para cada empresa encontrada, extrae:
+- Nombre comercial
+- Email de contacto (de su ficha o web)
+- Teléfono
+- Web oficial
+- Nombre del responsable si aparece
+
+Busca 15-20 empresas con datos de contacto completos.
+
+Responde SOLO con JSON array válido:
 [{"name": "...", "email": "...", "phone": "...", "website": "...", "owner": "..."}]`;
 
     const response = await openai.responses.create({
@@ -335,42 +494,47 @@ Responde SOLO con un JSON array, sin explicaciones:
       }
     }
 
+    responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+
     if (jsonMatch) {
-      const businesses = JSON.parse(jsonMatch[0]);
+      try {
+        const businesses = JSON.parse(jsonMatch[0]);
 
-      for (const biz of businesses) {
-        if (!biz.name || !biz.email) continue;
-        if (!isValidEmail(biz.email)) continue;
+        for (const biz of businesses) {
+          if (!biz.name || biz.name.length < 3) continue;
 
-        results.push({
-          name: cleanName(biz.name).substring(0, 100),
-          email: biz.email.toLowerCase(),
-          emailVerified: true, // AI verified from source
-          phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
-          phoneVerified: !!biz.phone,
-          website: biz.website || undefined,
-          owner: biz.owner || undefined,
-          source: 'AI Email Search',
-          scrapedAt: new Date().toISOString(),
-        });
+          const cleanedEmail = biz.email ? cleanEmail(biz.email) : undefined;
+
+          results.push({
+            name: cleanName(biz.name).substring(0, 100),
+            email: cleanedEmail && isValidEmail(cleanedEmail) ? cleanedEmail : undefined,
+            emailVerified: false,
+            phone: biz.phone && isValidPhone(biz.phone) ? formatPhone(biz.phone) : undefined,
+            phoneVerified: !!biz.phone,
+            website: biz.website || undefined,
+            owner: biz.owner || undefined,
+            source: 'Directorios',
+            scrapedAt: new Date().toISOString(),
+          });
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
       }
     }
   } catch (error) {
-    console.error('AI email search error:', error);
+    console.error('Directory search error:', error);
   }
 
   return results;
 }
 
-// Búsqueda en DuckDuckGo
+// Búsqueda en DuckDuckGo (backup)
 async function searchDuckDuckGo(query: string, location: string): Promise<BusinessResult[]> {
   const results: BusinessResult[] = [];
   const searches = [
-    `${query} ${location}`,
-    `${query} ${location} contacto`,
-    `clinica ${query} ${location}`,
-    `centro ${query} ${location}`,
+    `${query} ${location} contacto email`,
+    `${query} ${location} telefono`,
   ];
 
   for (const searchTerm of searches) {
@@ -392,7 +556,9 @@ async function searchDuckDuckGo(query: string, location: string): Promise<Busine
         if (name.length < 3) return;
 
         // Extraer datos del snippet
-        const snippetEmails = (snippet.match(EMAIL_REGEX) || []).filter(e => isValidEmail(e));
+        const snippetEmails = (snippet.match(EMAIL_REGEX) || [])
+          .map(e => cleanEmail(e))
+          .filter((e): e is string => e !== null && isValidEmail(e));
         const snippetPhones = (snippet.match(PHONE_REGEX_ES) || []).filter(p => isValidPhone(p));
 
         let website = link;
@@ -400,11 +566,10 @@ async function searchDuckDuckGo(query: string, location: string): Promise<Busine
           website = `https://${website}`;
         }
 
-        // Solo añadir si tiene algo útil
         if (website || snippetEmails.length > 0 || snippetPhones.length > 0) {
           results.push({
             name: name.substring(0, 100),
-            email: snippetEmails[0]?.toLowerCase(),
+            email: snippetEmails[0],
             emailVerified: false,
             phone: snippetPhones[0] ? formatPhone(snippetPhones[0]) : undefined,
             phoneVerified: snippetPhones.length > 0,
@@ -422,56 +587,6 @@ async function searchDuckDuckGo(query: string, location: string): Promise<Busine
   return results;
 }
 
-// Búsqueda específica de emails
-async function searchEmails(query: string, location: string): Promise<BusinessResult[]> {
-  const results: BusinessResult[] = [];
-
-  const searches = [
-    `"${query}" "${location}" email`,
-    `"${query}" "${location}" @gmail.com OR @hotmail.com`,
-    `${query} ${location} correo electronico contacto`,
-  ];
-
-  for (const searchTerm of searches) {
-    try {
-      const response = await fetchSafe(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchTerm)}`, 15000);
-      if (!response || !response.ok) continue;
-
-      const html = await response.text();
-      const $ = cheerio.load(html);
-
-      $('.result').each((_, element) => {
-        const title = $(element).find('.result__title').text().trim();
-        const link = $(element).find('.result__url').text().trim();
-        const snippet = $(element).find('.result__snippet').text();
-
-        const emails = (snippet.match(EMAIL_REGEX) || []).filter(e => isValidEmail(e));
-        if (emails.length === 0) return;
-
-        const name = cleanName(title);
-        if (name.length < 3) return;
-
-        const phones = (snippet.match(PHONE_REGEX_ES) || []).filter(p => isValidPhone(p));
-
-        results.push({
-          name: name.substring(0, 100),
-          email: emails[0].toLowerCase(),
-          emailVerified: false,
-          phone: phones[0] ? formatPhone(phones[0]) : undefined,
-          phoneVerified: phones.length > 0,
-          website: link ? (link.startsWith('http') ? link : `https://${link}`) : undefined,
-          source: 'Email Search',
-          scrapedAt: new Date().toISOString(),
-        });
-      });
-    } catch (error) {
-      console.error('Email search error:', error);
-    }
-  }
-
-  return results;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -481,76 +596,103 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Query and location are required' }, { status: 400 });
     }
 
-    console.log(`Scraping: ${query} in ${location}`);
+    console.log(`Scraping: ${query} in ${location}, max: ${maxResults}`);
 
-    // Determinar si usar OpenAI (si hay API key configurada)
     const useOpenAI = !!process.env.OPENAI_API_KEY;
 
     // Búsquedas en paralelo
     const searchPromises: Promise<BusinessResult[]>[] = [
       searchDuckDuckGo(query, location),
-      searchEmails(query, location),
     ];
 
-    // Añadir búsquedas con OpenAI si está disponible
     if (useOpenAI) {
       console.log('Using OpenAI for enhanced search...');
-      searchPromises.push(searchWithOpenAI(query, location));
+      searchPromises.push(searchWithOpenAI(query, location, maxResults));
       searchPromises.push(searchEmailsWithAI(query, location));
+      searchPromises.push(searchDirectoriesWithAI(query, location));
     }
 
     const searchResults = await Promise.all(searchPromises);
-    const [duckResults, emailResults, ...aiResults] = searchResults;
 
-    // Combinar resultados de AI
-    const openAIResults = aiResults.flat();
+    // Combinar todos los resultados
+    const allResults = searchResults.flat();
 
-    // Combinar y eliminar duplicados - priorizar AI results que tienen mejor calidad
-    const allResults = [...openAIResults, ...emailResults, ...duckResults];
+    // Eliminar duplicados por nombre (normalizado)
     const uniqueResults: BusinessResult[] = [];
     const seenNames = new Set<string>();
 
+    // Ordenar para priorizar los que tienen email
+    allResults.sort((a, b) => {
+      const scoreA = (a.email ? 10 : 0) + (a.phone ? 3 : 0) + (a.emailVerified ? 5 : 0);
+      const scoreB = (b.email ? 10 : 0) + (b.phone ? 3 : 0) + (b.emailVerified ? 5 : 0);
+      return scoreB - scoreA;
+    });
+
     for (const result of allResults) {
-      const key = result.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+      const key = result.name.toLowerCase()
+        .replace(/[^a-záéíóúñ0-9]/g, '')
+        .slice(0, 25);
+
       if (!seenNames.has(key) && key.length > 3) {
         seenNames.add(key);
-        uniqueResults.push(result);
+
+        // Si ya tenemos uno sin email y este tiene email, preferir este
+        const existingIndex = uniqueResults.findIndex(r =>
+          r.name.toLowerCase().replace(/[^a-záéíóúñ0-9]/g, '').slice(0, 25) === key
+        );
+
+        if (existingIndex === -1) {
+          uniqueResults.push(result);
+        } else if (!uniqueResults[existingIndex].email && result.email) {
+          uniqueResults[existingIndex] = { ...uniqueResults[existingIndex], ...result };
+        }
       }
     }
 
-    // Limitar y enriquecer con scraping de webs
-    const limitedResults = uniqueResults.slice(0, maxResults);
+    // Limitar resultados
+    const limitedResults = uniqueResults.slice(0, maxResults + 10);
 
-    // Scrapear webs en paralelo para obtener emails
+    // Scrapear webs para obtener emails faltantes
+    console.log(`Enriching ${limitedResults.length} results...`);
+
     const enrichedResults = await Promise.all(
       limitedResults.map(async (result) => {
+        // Solo scrapear si tiene web pero no tiene email
         if (result.website && !result.email) {
-          const scraped = await scrapeWebsite(result.website);
-          if (scraped.emails.length > 0) {
-            result.email = scraped.emails[0];
-            result.emailVerified = true;
-          }
-          if (!result.phone && scraped.phones.length > 0) {
-            result.phone = scraped.phones[0];
-            result.phoneVerified = true;
-          }
-          if (scraped.owner) {
-            result.owner = scraped.owner;
+          try {
+            const scraped = await scrapeWebsite(result.website);
+            if (scraped.emails.length > 0) {
+              result.email = scraped.emails[0];
+              result.emailVerified = true;
+            }
+            if (!result.phone && scraped.phones.length > 0) {
+              result.phone = scraped.phones[0];
+              result.phoneVerified = true;
+            }
+            if (scraped.owner && !result.owner) {
+              result.owner = scraped.owner;
+            }
+          } catch (e) {
+            console.error('Scrape error for', result.website, e);
           }
         }
         return result;
       })
     );
 
-    // Filtrar los que tienen contacto
-    const validResults = enrichedResults.filter(r => r.email || r.phone);
+    // Filtrar los que tienen al menos teléfono o email
+    const validResults = enrichedResults
+      .filter(r => r.email || r.phone)
+      .slice(0, maxResults);
 
-    // Ordenar por cantidad de info
+    // Ordenar: primero los que tienen email, luego por cantidad de info
     validResults.sort((a, b) => {
-      const scoreA = (a.email ? 2 : 0) + (a.phone ? 1 : 0) + (a.owner ? 1 : 0);
-      const scoreB = (b.email ? 2 : 0) + (b.phone ? 1 : 0) + (b.owner ? 1 : 0);
+      const scoreA = (a.email ? 10 : 0) + (a.phone ? 3 : 0) + (a.owner ? 1 : 0) + (a.website ? 1 : 0);
+      const scoreB = (b.email ? 10 : 0) + (b.phone ? 3 : 0) + (b.owner ? 1 : 0) + (b.website ? 1 : 0);
       return scoreB - scoreA;
     });
+
+    console.log(`Found ${validResults.length} valid results (${validResults.filter(r => r.email).length} with email)`);
 
     return NextResponse.json({
       success: true,
@@ -570,7 +712,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     message: 'Syntalys Business Contact Scraper API',
-    version: '3.0.0',
+    version: '4.3.0',
     usage: 'POST { query, location, maxResults? }',
   });
 }

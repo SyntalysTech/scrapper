@@ -386,13 +386,20 @@ export default function Home() {
         {/* Header */}
         <header className="mb-12">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-neutral-900 tracking-tight">
-                Syntalys Scraper
-              </h1>
-              <p className="mt-1 text-neutral-500">
-                Encuentra contactos públicos de negocios con IA
-              </p>
+            <div className="flex items-center gap-4">
+              <img
+                src="/logo-horizontal.png"
+                alt="Syntalys"
+                className="h-10 w-auto"
+              />
+              <div>
+                <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">
+                  Scraper
+                </h1>
+                <p className="text-sm text-neutral-500">
+                  Encuentra contactos públicos de negocios con IA
+                </p>
+              </div>
             </div>
             {contacted.size > 0 && (
               <div className="flex items-center gap-3">
@@ -532,7 +539,7 @@ export default function Home() {
 
             {/* Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white rounded-xl border border-neutral-200">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 {/* Search in results */}
                 <div className="relative">
                   <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -548,7 +555,7 @@ export default function Home() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex items-center gap-1 p-1 bg-neutral-100 rounded-lg">
+                <div className="flex items-center gap-1 p-1 bg-neutral-100 rounded-lg overflow-x-auto">
                   {[
                     { value: 'all', label: 'Todos' },
                     { value: 'with_email', label: 'Email' },
@@ -684,8 +691,8 @@ export default function Home() {
 
             {/* Table View */}
             {viewMode === 'table' && filteredResults.length > 0 && (
-              <div className="overflow-hidden border border-neutral-200 rounded-xl bg-white">
-                <table className="w-full">
+              <div className="overflow-x-auto border border-neutral-200 rounded-xl bg-white">
+                <table className="w-full min-w-[900px]">
                   <thead>
                     <tr className="bg-neutral-50 border-b border-neutral-200">
                       <th className="text-left px-4 py-3 w-10">
